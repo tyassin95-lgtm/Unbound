@@ -40,6 +40,13 @@ data class TurnResponseDto(
      * rather than an inline marker that could be mangled.
      */
     @SerialName("player_dialogue") val playerDialogue: List<String> = emptyList(),
+    /**
+     * Who is physically in the scene as the turn ends.
+     *
+     * The narrator knows this and the database cannot infer it reliably, so it is asked for
+     * directly rather than guessed at from stored locations. See [ScenePresence].
+     */
+    @SerialName("present_character_ids") val presentCharacterIds: List<String> = emptyList(),
 )
 
 @Serializable

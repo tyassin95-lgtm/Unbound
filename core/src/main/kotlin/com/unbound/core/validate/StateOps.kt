@@ -28,12 +28,26 @@ data class ValidationIssue(
 )
 
 /**
- * Result of validating a model response. Non-fatal issues drop the offending element and keep the
- * turn; fatal issues fail the whole turn so nothing is partially committed.
+ * Result of validating a model response.
+ *
+ * Every list here is what *survived* validation, and the pipeline must apply these rather than the
+ * raw response. That distinction was once only half-honoured: state ops were filtered, but events
+ * and knowledge changes were validated and then applied unfiltered anyway, so an NPC flagged as
+ * unable to know something learned it regardless. A rejection that does not remove anything is not
+ * a rejection.
+ *
+ * Non-fatal issues drop the offending element and keep the turn; fatal issues fail the whole turn
+ * so nothing is partially committed.
  */
 data class ValidationResult(
     val ops: List<StateOp>,
     val issues: List<ValidationIssue>,
+    /** Knowledge assignments that may be written. */
+    val knowledgeChanges: List<KnowledgeChangeDto> = emptyList(),
+    /** Events that may be appended, with unresolvable references stripped. */
+    val events: List<EventDto> = emptyList(),
+    /** NPC actions that may be applied. */
+    val npcActions: List<NpcActionDto> = emptyList(),
 ) {
     val hasFatal: Boolean get() = issues.any { it.fatal }
     val rejectedCount: Int get() = issues.size

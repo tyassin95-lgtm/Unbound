@@ -244,4 +244,107 @@ class StateValidatorTest {
         assertFalse(result.hasFatal)
         assertEquals("UNKNOWN_CHANGE_TYPE", result.issues.single().code)
     }
+
+    // --- a rejection must actually remove something ------------------------------------------
+
+    @Test
+    fun `rejected knowledge is removed, not merely complained about`() {
+        val absent = mara.copy(currentLocationId = "loc_next")
+        val context = ctx().copy(npcs = mapOf(absent.id to absent))
+        val result = validator.validate(
+            TurnResponseDto(
+                narrative = "x",
+                knowledgeChanges = listOf(
+                    com.unbound.core.validate.KnowledgeChangeDto(
+                        knowerId = "npc_mara", factKey = "k", statement = "s", certainty = "KNOWN",
+                    ),
+                    com.unbound.core.validate.KnowledgeChangeDto(
+                        knowerId = "npc_nobody", factKey = "k2", statement = "s", certainty = "KNOWN",
+                    ),
+                ),
+            ),
+            context,
+        )
+        assertEquals(2, result.issues.size)
+        assertTrue("Nothing impossible may survive validation", result.knowledgeChanges.isEmpty())
+    }
+
+    @Test
+    fun `knowledge with a named source survives even when the knower is elsewhere`() {
+        val absent = mara.copy(currentLocationId = "loc_next")
+        val context = ctx().copy(npcs = mapOf(absent.id to absent))
+        val result = validator.validate(
+            TurnResponseDto(
+                narrative = "x",
+                knowledgeChanges = listOf(
+                    com.unbound.core.validate.KnowledgeChangeDto(
+                        knowerId = "npc_mara", factKey = "k", statement = "she was told",
+                        certainty = "RUMORED", sourceEntityId = "player",
+                    ),
+                ),
+            ),
+            context,
+        )
+        assertTrue(result.issues.isEmpty())
+        assertEquals(1, result.knowledgeChanges.size)
+    }
+
+    @Test
+    fun `an action for a dead character is removed, and a live one survives`() {
+        val result = validator.validate(
+            TurnResponseDto(
+                narrative = "x",
+                npcActions = listOf(
+                    com.unbound.core.validate.NpcActionDto(npcId = "npc_ghost", action = "waves"),
+                    com.unbound.core.validate.NpcActionDto(npcId = "npc_mara", action = "pours a drink"),
+                ),
+            ),
+            ctx(),
+        )
+        assertEquals(listOf("DEAD_NPC_ACTING"), result.issues.map { it.code })
+        assertEquals(listOf("npc_mara"), result.npcActions.map { it.npcId })
+    }
+
+    @Test
+    fun `an event keeps its history but loses a reference to somebody who does not exist`() {
+        val result = validator.validate(
+            TurnResponseDto(
+                narrative = "x",
+                events = listOf(
+                    com.unbound.core.validate.EventDto(
+                        type = "PLAYER_SPOKE_TO_NPC", actorId = "player", targetId = "npc_nobody",
+                        summary = "The player said something.",
+                    ),
+                    com.unbound.core.validate.EventDto(type = "NONSENSE", summary = "?"),
+                ),
+            ),
+            ctx(),
+        )
+        assertEquals(setOf("DANGLING_REFERENCE", "UNKNOWN_EVENT_TYPE"), result.issues.map { it.code }.toSet())
+
+        val kept = result.events.single()
+        assertEquals("The event itself is still true history", "The player said something.", kept.summary)
+        assertEquals("player", kept.actorId)
+        assertEquals("...but it cannot be attributed to nobody", null, kept.targetId)
+    }
+
+    @Test
+    fun `a character the narrator places in the scene can learn first-hand`() {
+        val absent = mara.copy(currentLocationId = "loc_next")
+        val context = ctx().copy(npcs = mapOf(absent.id to absent))
+        val result = validator.validate(
+            TurnResponseDto(
+                narrative = "x",
+                presentCharacterIds = listOf("npc_mara"),
+                knowledgeChanges = listOf(
+                    com.unbound.core.validate.KnowledgeChangeDto(
+                        knowerId = "npc_mara", factKey = "k", statement = "she saw it", certainty = "KNOWN",
+                    ),
+                ),
+            ),
+            context,
+        )
+        assertTrue("The narrative outranks a stale location column", result.issues.isEmpty())
+        assertEquals(1, result.knowledgeChanges.size)
+    }
 }

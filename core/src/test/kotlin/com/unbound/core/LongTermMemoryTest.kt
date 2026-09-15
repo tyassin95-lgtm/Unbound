@@ -41,7 +41,8 @@ class LongTermMemoryTest {
         // Warden Surrin is elsewhere for the whole scenario, so nothing should reach her by
         // presence — only by the routes the test explicitly opens.
         val surrin = w.store.getNpc(game.id, surrinId)!!
-        w.store.upsertNpcs(listOf(surrin.copy(currentLocationId = w.seed.locations.first { it.key == "lane" }.key)))
+        val lane = w.store.allLocations(game.id).first { it.name == w.seed.locations.first { l -> l.key == "lane" }.name }
+        w.store.upsertNpcs(listOf(surrin.copy(currentLocationId = lane.id)))
 
         fun filler(text: String) = TurnResponseDto(narrative = "Time passes. $text", timeAdvanceMinutes = 45)
 

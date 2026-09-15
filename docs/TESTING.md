@@ -1,9 +1,9 @@
 # Testing
 
-119 tests, 0 failures. No test makes a network call or needs an API key.
+138 tests, 0 failures. No test makes a network call or needs an API key.
 
 ```bash
-./gradlew :core:test            # 92 tests — engine, pure JVM, ~2s
+./gradlew :core:test            # 111 tests — engine, pure JVM, ~3s
 ./gradlew :app:testDebugUnitTest # 27 tests — Room on real SQLite, creation, security
 ./gradlew test                   # everything
 ```
@@ -28,6 +28,8 @@
 | `KnowledgeScopeTest` | 2 | 0.0s | secrets and rumors |
 | `LongTermMemoryTest` | 1 | 0.2s | the §94 scenario across 120 turns |
 | `NarrativeFormatterTest` | 13 | 0.0s | speech and message styling; no text is ever lost |
+| `ScenePresenceTest` | 8 | 0.0s | who counts as being in the room |
+| `SceneParticipationTest` | 6 | 0.1s | characters stay in the scene they are in |
 | `WorldSanitiserTest` | 11 | 0.0s | generated worlds treated as untrusted input |
 | `GameCreatorTest` | 7 | 0.1s | creation progress ordering, failure recovery |
 | `OpeningGeneratorTest` | 2 | 0.0s | opening parsing and tailoring |
@@ -95,7 +97,16 @@ Not hypothetical — each of these was caught by a failing test during developme
    Import now regenerates every id and rewrites every reference.
 4. **Lossy export.** The first export dropped all knowledge rows and most memories and items.
    Full-enumeration accessors were added to the store contract.
-5. **Creation progress went idle too early** — reported by a player. The busy state was cleared
+5. **A character vanished from her own conversation** — reported from play. An NPC introduced as
+   arriving from elsewhere kept that location forever, so she could not be pictured, witnessed
+   nothing said to her face, and had her knowledge rejected as `IMPOSSIBLE_KNOWLEDGE`. Presence is
+   now resolved from the narrative and written back. Two further bugs surfaced underneath: the
+   world simulator undid any move the story had just made, and characters were created *after*
+   knowledge and memory were derived, so anyone introduced could never witness their own scene.
+6. **Rejection did not reject.** The validator reported impossible knowledge and dangling
+   references, and the pipeline then applied the raw response anyway. `ValidationResult` now carries
+   what survived, and the pipeline applies only that.
+7. **Creation progress went idle too early** — reported by a player. The busy state was cleared
    *before* the opening-scene request, so the Begin button re-enabled while the call was still in
    flight and invited repeated taps. The orchestration was extracted into `GameCreator` so the
    emitted sequence could be pinned, and `GameCreatorTest` now asserts nothing goes idle until the

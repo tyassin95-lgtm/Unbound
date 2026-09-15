@@ -95,6 +95,41 @@ What it rejects:
 World-specific rules can legitimately override physics: a setting whose `specialRules` mention
 portals disables the teleportation check. Covered by test.
 
+## Who is in the scene
+
+A character's stored location records where they were *put*, which is not where the story has them
+standing: someone introduced as arriving from elsewhere keeps the location they arrived from. That
+one stale column caused three separate failures — they could not be pictured in the scene they were
+in, they witnessed nothing that happened in front of them, and the validator rejected knowledge they
+had obviously just acquired in person.
+
+`ScenePresence` resolves it from what the narrative actually says, in order of authority:
+
+1. `present_character_ids`, where the narrator states outright who is in the room.
+2. Anyone given an `npc_action` — you cannot act in a scene you are not in.
+3. Anyone named as actor or target of an event at the player's location.
+4. Anyone whose stored location already agrees.
+
+The result is written back, so the column stops drifting instead of being worked around. Anyone the
+narrative just placed is also exempt from the world simulator that turn, which otherwise walks them
+straight back to their daily schedule.
+
+The commit order follows from this: **the cast and their positions are settled before knowledge and
+memory are derived from them.** With characters created afterwards — as they once were — anyone
+introduced in a scene could never witness or remember the scene they were introduced in.
+
+## Rejection has to remove something
+
+`ValidationResult` carries what *survived*, and the pipeline applies those lists rather than the raw
+response. This was once only half-honoured: state ops were filtered, but events and knowledge were
+validated and then applied unfiltered, so a character flagged as unable to know something learned it
+anyway. A rejection that removes nothing is not a rejection.
+
+Existence and relevance are also kept apart. The context maps are a retrieval budget — what was
+worth sending to the model — so absence from them is not evidence that an entity does not exist.
+`knownEntityIds` answers the existence question separately, which is what lets the narrator tell a
+guard across town something with a named source.
+
 ## What the engine does without the model
 
 Deliberately deterministic, and therefore free:

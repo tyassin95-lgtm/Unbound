@@ -88,9 +88,14 @@ class CommandParser {
                 hits += id
                 continue
             }
-            val first = n.substringBefore(' ')
-            if (first.length >= 3 &&
-                (lower.contains(" $first ") || lower.contains(" $first's ") || lower.contains(" $first,") || lower.contains(" $first."))
+            // Any distinctive part of the name, not only the first: people say "Surrin" as
+            // readily as "Warden Surrin", and missing that drops them out of the turn's focus.
+            val parts = n.split(' ').filter { it.length >= MIN_NAME_PART }
+            if (parts.any { part ->
+                    lower.contains(" $part ") || lower.contains(" $part's ") ||
+                        lower.contains(" $part,") || lower.contains(" $part.") ||
+                        lower.contains(" $part?") || lower.contains(" $part!")
+                }
             ) {
                 hits += id
             }
@@ -102,5 +107,8 @@ class CommandParser {
         val TONE_PREFIXES = listOf("tone:", "tone ", "/tone ")
         val LIMIT_PREFIXES = listOf("limits:", "limit:", "limits ", "/limits ")
         val IMAGE_PREFIXES = listOf("image of ", "picture of ", "show me ", "/image ", "draw ")
+
+        /** Short name fragments collide with ordinary words; this is the length that stops that. */
+        const val MIN_NAME_PART = 4
     }
 }

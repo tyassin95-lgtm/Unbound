@@ -26,10 +26,12 @@ import com.unbound.core.simulation.SimulationInput
 import com.unbound.core.simulation.WorldSimulator
 import com.unbound.core.threads.ThreadEngine
 import com.unbound.core.validate.StateOp
+import com.unbound.core.validate.ScenePresence
 import com.unbound.core.validate.StateValidator
 import com.unbound.core.validate.TurnResponseDto
 import com.unbound.core.validate.ValidationContext
 import com.unbound.core.validate.ValidationIssue
+import com.unbound.core.validate.ValidationResult
 import kotlinx.serialization.json.Json
 
 /**
@@ -109,7 +111,9 @@ class TurnPipeline(
             return TurnOutcome.Failure("Could not assemble the world state for this turn.", AIErrorKind.UNKNOWN, retryable = true)
         }
 
-        val guardClause = com.unbound.core.safety.ContentGuard.sceneClause(player, assembly.context.presentNpcs)
+        // Deliberately wider than "present": a character who is in play but filed elsewhere can
+        // still walk into the scene this turn, and a safety constraint should cover them.
+        val guardClause = com.unbound.core.safety.ContentGuard.sceneClause(player, assembly.context.relevantNpcs)
         val request = AITextRequest(
             modelId = game.textModelId,
             stableSystemPrompt = PromptModules.stableSystemPrompt(),
@@ -171,8 +175,7 @@ class TurnPipeline(
                 turn = pendingTurn,
                 assembly = assembly,
                 response = parsed,
-                ops = validation.ops,
-                issues = validation.issues,
+                validation = validation,
                 usage = aiResponse,
                 latencyMs = clock() - started,
             )
@@ -204,7 +207,13 @@ class TurnPipeline(
         val mentionCandidates = persistent.associate { it.id to it.name }
         val mentioned = CommandParserHolder.parser.resolveMentions(playerInput, mentionCandidates)
 
-        val relevantNpcs = (present + persistent.filter { it.id in mentioned })
+        // Someone who was in the scene a turn or two ago is still relevant even if their stored
+        // location says otherwise — that staleness is exactly what used to make a character vanish
+        // from her own conversation. Present first, then named, then recently seen, all capped.
+        val recentlySeen = persistent.filter { npc ->
+            npc.lastSeenTurn?.let { game.turnNumber - it <= RECENTLY_SEEN_TURNS } == true
+        }
+        val relevantNpcs = (present + persistent.filter { it.id in mentioned } + recentlySeen)
             .distinctBy { it.id }
             .take(budget.maxNpcs)
 
@@ -273,6 +282,10 @@ class TurnPipeline(
             items = (inventory + store.itemsAt(game.id, location.id)).distinctBy { it.id }.associateBy { it.id },
             reachableLocationIds = reachable,
             specialRules = world.specialRules,
+            // Everyone and everywhere this campaign actually has, so a reference to someone real
+            // but not retrieved this turn is not mistaken for a reference to nobody.
+            knownEntityIds = (persistent.map { it.id } + store.factions(game.id).map { it.id } +
+                store.discoveredLocations(game.id, 200).map { it.id }).toSet(),
         )
 
         return Assembly(context, validationContext, openThreads, query, contextBuilder.build(context))
@@ -297,11 +310,14 @@ class TurnPipeline(
         turn: TurnRecord,
         assembly: Assembly,
         response: TurnResponseDto,
-        ops: List<StateOp>,
-        issues: List<ValidationIssue>,
+        validation: ValidationResult,
         usage: com.unbound.core.ai.AITextResponse,
         latencyMs: Long,
     ): TurnOutcome = store.transaction {
+        // Only what survived validation is ever applied. Reading `response` for anything the
+        // validator filters would silently reinstate rejected content.
+        val ops = validation.ops
+        val issues = validation.issues
         // Re-read under the transaction and re-check the lock; anything else is a lost update.
         val current = store.getGame(game.id) ?: throw StaleStateException("Game vanished mid-turn.")
         if (current.stateVersion != turn.baseStateVersion) {
@@ -544,7 +560,7 @@ class TurnPipeline(
         }
 
         // --- model-declared events ------------------------------------------------------------
-        for (dto in response.events) {
+        for (dto in validation.events) {
             val type = dto.eventType() ?: continue
             events += GameEvent(
                 id = Ids.event(idFactory()),
@@ -578,8 +594,169 @@ class TurnPipeline(
             relationshipEdits[key] = relationshipEngine.apply(existing, delta, event.summary, newWorldTime.totalMinutes, event.id)
         }
 
+        // The order below is deliberate and was got wrong once: the cast of the scene and
+        // where everyone is standing must be settled *before* knowledge and memory are derived
+        // from it. With characters created afterwards, anyone introduced in a scene could never
+        // witness or remember the scene they were introduced in.
+
+        // --- new characters ---------------------------------------------------------------------
+        val introducedIntoScene = mutableSetOf<String>()
+        // The world must be able to gain people, but only on the content guard's terms: an
+        // explicit age or the character is discarded.
+        for (dto in response.newCharacters) {
+            if (dto.name.isBlank() || dto.age <= 0) {
+                continue
+            }
+            val existing = store.persistentNpcs(game.id, 300).firstOrNull { it.name.equals(dto.name, ignoreCase = true) }
+            if (existing != null) continue
+            val created = NpcRecord(
+                id = Ids.npc(idFactory()),
+                gameId = game.id,
+                name = dto.name,
+                age = dto.age,
+                gender = dto.gender,
+                appearance = Appearance(summary = dto.appearance),
+                occupation = dto.occupation,
+                personality = dto.personality,
+                currentPlan = dto.wants,
+                // Introduced *into this scene* unless the narrator explicitly places them
+                // somewhere else; the scene-presence sync below has the final say either way.
+                currentLocationId = dto.locationId?.takeIf { store.getLocation(game.id, it) != null }
+                    ?: updatedPlayer.currentLocationId,
+                // Semi-persistent: they exist because they were met, and are promoted to fully
+                // persistent only if the player keeps dealing with them.
+                tier = NpcTier.SEMI_PERSISTENT,
+                firstEncounteredTurn = turn.turnNumber,
+                lastSeenTurn = turn.turnNumber,
+                lastSeenWorldMinutes = newWorldTime.totalMinutes,
+                introduced = true,
+            )
+            npcEdits[created.id] = created
+            // A character given an explicit location elsewhere is being *mentioned*, not met, so
+            // they do not join the scene. One introduced with no location walked into it.
+            if (created.currentLocationId == updatedPlayer.currentLocationId) {
+                introducedIntoScene += created.id
+            }
+            emit(EventType.NPC_INTRODUCED, "Met ${created.name}, ${created.occupation.ifBlank { "age ${created.age}" }}.", Importance.LOW, targetId = created.id)
+        }
+
+        // --- npc actions --------------------------------------------------------------------------
+        for (action in validation.npcActions) {
+            val n = npcEdits[action.npcId] ?: store.getNpc(game.id, action.npcId) ?: continue
+            if (!n.alive) continue
+            var updated = n.copy(currentPlan = action.action, lastSeenTurn = turn.turnNumber, lastSeenWorldMinutes = newWorldTime.totalMinutes)
+            action.movesToLocationId?.let { updated = updated.copy(currentLocationId = it) }
+            npcEdits[n.id] = updated
+            if (action.becomesHostile) {
+                val key = RelationshipRecord.key(game.id, n.id, Ids.PLAYER)
+                val existing = store.getRelationship(game.id, n.id, Ids.PLAYER) ?: RelationshipRecord(key, game.id, n.id, Ids.PLAYER)
+                relationshipEdits[key] = relationshipEngine.apply(existing, mapOf("hostility" to 30, "trust" to -20), action.action, newWorldTime.totalMinutes)
+                emit(EventType.NPC_BECAME_HOSTILE, "${n.name} turned on the player.", Importance.HIGH, actorId = n.id, targetId = Ids.PLAYER)
+            }
+        }
+
+        // --- threads ----------------------------------------------------------------------------
+        val threadEdits = mutableMapOf<String, ThreadRecord>()
+        for (dto in response.threadChanges) {
+            val importance = Importance.entries.firstOrNull { it.name == dto.importance.uppercase() } ?: Importance.MEDIUM
+            val type = ThreadType.entries.firstOrNull { it.name == dto.type.uppercase() } ?: ThreadType.OTHER
+            when (dto.action.uppercase()) {
+                "START" -> {
+                    if (dto.title.isBlank()) continue
+                    val id = Ids.thread(idFactory())
+                    threadEdits[id] = ThreadRecord(
+                        id = id,
+                        gameId = game.id,
+                        type = type,
+                        title = dto.title,
+                        description = dto.description,
+                        originatingEventId = events.firstOrNull()?.id,
+                        involvedEntityIds = dto.involvedEntityIds,
+                        stakes = dto.stakes,
+                        lastActivityWorldMinutes = newWorldTime.totalMinutes,
+                        importance = importance,
+                        deadlineWorldMinutes = dto.deadlineInMinutes?.let { newWorldTime.totalMinutes + it }
+                            ?: threadEngine.defaultDeadline(type, importance, newWorldTime),
+                    )
+                    emit(EventType.THREAD_STARTED, "New situation: ${dto.title}", importance)
+                }
+                else -> {
+                    val id = dto.threadId ?: continue
+                    val existing = threadEdits[id] ?: assembly.openThreads.firstOrNull { it.id == id } ?: continue
+                    val status = when (dto.action.uppercase()) {
+                        "RESOLVE" -> ThreadStatus.RESOLVED
+                        "FAIL" -> ThreadStatus.FAILED
+                        "STALL" -> ThreadStatus.STALLED
+                        "TRANSFORM" -> ThreadStatus.TRANSFORMED
+                        else -> ThreadStatus.ADVANCING
+                    }
+                    threadEdits[id] = existing.copy(
+                        status = status,
+                        description = dto.description.ifBlank { existing.description },
+                        lastActivityWorldMinutes = newWorldTime.totalMinutes,
+                        momentum = if (status == ThreadStatus.ADVANCING) (existing.momentum + 15).coerceAtMost(100) else existing.momentum,
+                    )
+                    emit(
+                        when (status) {
+                            ThreadStatus.RESOLVED -> EventType.THREAD_RESOLVED
+                            ThreadStatus.FAILED -> EventType.THREAD_FAILED
+                            ThreadStatus.TRANSFORMED -> EventType.THREAD_TRANSFORMED
+                            ThreadStatus.STALLED -> EventType.THREAD_STALLED
+                            else -> EventType.THREAD_ADVANCED
+                        },
+                        "${existing.title}: ${dto.description.ifBlank { status.name.lowercase() }}",
+                        existing.importance,
+                    )
+                }
+            }
+        }
+
+        // --- scene presence -----------------------------------------------------------------------
+        // The narrative is the authority on who is in the room; the stored location is a cache of
+        // that, and it goes stale the moment someone walks over without an explicit move. Bringing
+        // it back in line here is what lets the same people be witnessed, pictured and talked to
+        // next turn instead of being treated as absent from their own conversation.
+        val knownNpcIds = (assembly.validationContext.npcs.keys + npcEdits.keys).toMutableSet()
+        val storedPresent = (assembly.context.presentNpcs.map { it.id } + npcEdits.values
+            .filter { it.currentLocationId == updatedPlayer.currentLocationId }
+            .map { it.id }).toSet()
+
+        knownNpcIds += npcEdits.keys
+
+        val sceneParticipants = ScenePresence.participants(
+            declaredPresentIds = response.presentCharacterIds,
+            npcActions = validation.npcActions,
+            events = validation.events,
+            playerLocationId = updatedPlayer.currentLocationId,
+            knownNpcIds = knownNpcIds,
+            storedPresentIds = storedPresent + introducedIntoScene,
+        )
+        val stillHere = ScenePresence.remaining(
+            declaredPresentIds = response.presentCharacterIds,
+            npcActions = validation.npcActions,
+            events = validation.events,
+            playerLocationId = updatedPlayer.currentLocationId,
+            knownNpcIds = knownNpcIds,
+            storedPresentIds = storedPresent + introducedIntoScene,
+        )
+
+        for (npcId in stillHere) {
+            val npc = npcEdits[npcId] ?: store.getNpc(game.id, npcId) ?: continue
+            if (!npc.alive) continue
+            npcEdits[npc.id] = npc.copy(
+                currentLocationId = updatedPlayer.currentLocationId,
+                lastSeenTurn = turn.turnNumber,
+                lastSeenWorldMinutes = newWorldTime.totalMinutes,
+                // Someone the player has actually dealt with in a scene stops being disposable.
+                tier = if (npc.tier == NpcTier.AMBIENT) NpcTier.SEMI_PERSISTENT else npc.tier,
+            )
+        }
+
         // --- knowledge ---------------------------------------------------------------------------
-        val presentNpcs = assembly.context.presentNpcs.map { npcEdits[it.id] ?: it }
+        // Witnesses are everyone who took part in the scene, not everyone who happened to be filed
+        // at this location before the turn began.
+        val presentNpcs = sceneParticipants.mapNotNull { id -> npcEdits[id] ?: store.getNpc(game.id, id) }
+            .filter { it.alive }
         val knowledgeRecords = mutableListOf<KnowledgeRecord>()
         val rumorRecords = mutableListOf<com.unbound.core.knowledge.RumorRecord>()
 
@@ -589,7 +766,7 @@ class TurnPipeline(
             result.rumor?.let { rumorRecords += it }
         }
 
-        for (dto in response.knowledgeChanges) {
+        for (dto in validation.knowledgeChanges) {
             knowledgeRecords += KnowledgeRecord(
                 id = idFactory(),
                 gameId = game.id,
@@ -650,110 +827,6 @@ class TurnPipeline(
             }
         }
 
-        // --- threads ----------------------------------------------------------------------------
-        val threadEdits = mutableMapOf<String, ThreadRecord>()
-        for (dto in response.threadChanges) {
-            val importance = Importance.entries.firstOrNull { it.name == dto.importance.uppercase() } ?: Importance.MEDIUM
-            val type = ThreadType.entries.firstOrNull { it.name == dto.type.uppercase() } ?: ThreadType.OTHER
-            when (dto.action.uppercase()) {
-                "START" -> {
-                    if (dto.title.isBlank()) continue
-                    val id = Ids.thread(idFactory())
-                    threadEdits[id] = ThreadRecord(
-                        id = id,
-                        gameId = game.id,
-                        type = type,
-                        title = dto.title,
-                        description = dto.description,
-                        originatingEventId = events.firstOrNull()?.id,
-                        involvedEntityIds = dto.involvedEntityIds,
-                        stakes = dto.stakes,
-                        lastActivityWorldMinutes = newWorldTime.totalMinutes,
-                        importance = importance,
-                        deadlineWorldMinutes = dto.deadlineInMinutes?.let { newWorldTime.totalMinutes + it }
-                            ?: threadEngine.defaultDeadline(type, importance, newWorldTime),
-                    )
-                    emit(EventType.THREAD_STARTED, "New situation: ${dto.title}", importance)
-                }
-                else -> {
-                    val id = dto.threadId ?: continue
-                    val existing = threadEdits[id] ?: assembly.openThreads.firstOrNull { it.id == id } ?: continue
-                    val status = when (dto.action.uppercase()) {
-                        "RESOLVE" -> ThreadStatus.RESOLVED
-                        "FAIL" -> ThreadStatus.FAILED
-                        "STALL" -> ThreadStatus.STALLED
-                        "TRANSFORM" -> ThreadStatus.TRANSFORMED
-                        else -> ThreadStatus.ADVANCING
-                    }
-                    threadEdits[id] = existing.copy(
-                        status = status,
-                        description = dto.description.ifBlank { existing.description },
-                        lastActivityWorldMinutes = newWorldTime.totalMinutes,
-                        momentum = if (status == ThreadStatus.ADVANCING) (existing.momentum + 15).coerceAtMost(100) else existing.momentum,
-                    )
-                    emit(
-                        when (status) {
-                            ThreadStatus.RESOLVED -> EventType.THREAD_RESOLVED
-                            ThreadStatus.FAILED -> EventType.THREAD_FAILED
-                            ThreadStatus.TRANSFORMED -> EventType.THREAD_TRANSFORMED
-                            ThreadStatus.STALLED -> EventType.THREAD_STALLED
-                            else -> EventType.THREAD_ADVANCED
-                        },
-                        "${existing.title}: ${dto.description.ifBlank { status.name.lowercase() }}",
-                        existing.importance,
-                    )
-                }
-            }
-        }
-
-        // --- new characters ---------------------------------------------------------------------
-        // The world must be able to gain people, but only on the content guard's terms: an
-        // explicit age or the character is discarded.
-        for (dto in response.newCharacters) {
-            if (dto.name.isBlank() || dto.age <= 0) {
-                continue
-            }
-            val existing = store.persistentNpcs(game.id, 300).firstOrNull { it.name.equals(dto.name, ignoreCase = true) }
-            if (existing != null) continue
-            val created = NpcRecord(
-                id = Ids.npc(idFactory()),
-                gameId = game.id,
-                name = dto.name,
-                age = dto.age,
-                gender = dto.gender,
-                appearance = Appearance(summary = dto.appearance),
-                occupation = dto.occupation,
-                personality = dto.personality,
-                currentPlan = dto.wants,
-                currentLocationId = dto.locationId?.takeIf { store.getLocation(game.id, it) != null }
-                    ?: updatedPlayer.currentLocationId,
-                // Semi-persistent: they exist because they were met, and are promoted to fully
-                // persistent only if the player keeps dealing with them.
-                tier = NpcTier.SEMI_PERSISTENT,
-                firstEncounteredTurn = turn.turnNumber,
-                lastSeenTurn = turn.turnNumber,
-                lastSeenWorldMinutes = newWorldTime.totalMinutes,
-                introduced = true,
-            )
-            npcEdits[created.id] = created
-            emit(EventType.NPC_INTRODUCED, "Met ${created.name}, ${created.occupation.ifBlank { "age ${created.age}" }}.", Importance.LOW, targetId = created.id)
-        }
-
-        // --- npc actions --------------------------------------------------------------------------
-        for (action in response.npcActions) {
-            val n = npcEdits[action.npcId] ?: store.getNpc(game.id, action.npcId) ?: continue
-            if (!n.alive) continue
-            var updated = n.copy(currentPlan = action.action, lastSeenTurn = turn.turnNumber, lastSeenWorldMinutes = newWorldTime.totalMinutes)
-            action.movesToLocationId?.let { updated = updated.copy(currentLocationId = it) }
-            npcEdits[n.id] = updated
-            if (action.becomesHostile) {
-                val key = RelationshipRecord.key(game.id, n.id, Ids.PLAYER)
-                val existing = store.getRelationship(game.id, n.id, Ids.PLAYER) ?: RelationshipRecord(key, game.id, n.id, Ids.PLAYER)
-                relationshipEdits[key] = relationshipEngine.apply(existing, mapOf("hostility" to 30, "trust" to -20), action.action, newWorldTime.totalMinutes)
-                emit(EventType.NPC_BECAME_HOSTILE, "${n.name} turned on the player.", Importance.HIGH, actorId = n.id, targetId = Ids.PLAYER)
-            }
-        }
-
         // --- world simulation for elapsed time ---------------------------------------------------
         val simulation = simulator.simulate(
             SimulationInput(
@@ -766,6 +839,7 @@ class TurnPipeline(
                 threads = assembly.openThreads.map { threadEdits[it.id] ?: it },
                 rumors = store.activeRumors(game.id, 40),
                 engagedThreadIds = threadEdits.keys,
+                narrativelyPlacedNpcIds = npcEdits.keys,
             ),
         )
         simulation.npcUpdates.forEach { npcEdits[it.id] = it }
@@ -890,6 +964,11 @@ class TurnPipeline(
         val dynamicContext: String,
     ) {
         val contextLength: Int get() = dynamicContext.length
+    }
+
+    private companion object {
+        /** How many turns a character stays "in play" after last appearing. */
+        const val RECENTLY_SEEN_TURNS = 2
     }
 
     private object CommandParserHolder {

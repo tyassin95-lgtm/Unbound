@@ -54,6 +54,17 @@ object TurnSchema {
                 )
                 putJsonObject("items") { put("type", "string") }
             }
+            putJsonObject("present_character_ids") {
+                put("type", "array")
+                put(
+                    "description",
+                    "Ids of every character physically present in the scene as this turn ends — " +
+                        "anyone the player could reach out and touch, speak to, or be overheard by. " +
+                        "Include characters who walked in during this turn. Omit anyone who left, " +
+                        "and anyone who was only mentioned, phoned or remembered.",
+                )
+                putJsonObject("items") { put("type", "string") }
+            }
             putJsonObject("suggested_actions") {
                 put("type", "array")
                 put("description", "3-5 hints of different kinds. Never a whitelist of legal moves.")
@@ -64,7 +75,7 @@ object TurnSchema {
             listOf(
                 "narrative", "time_advance_minutes", "scene_is_significant", "events", "state_changes",
                 "knowledge_changes", "relationship_changes", "memory_candidates", "thread_changes",
-                "npc_actions", "world_changes", "new_characters", "player_dialogue", "suggested_actions",
+                "npc_actions", "world_changes", "new_characters", "player_dialogue", "present_character_ids", "suggested_actions",
             ).forEach { add(it) }
         }
     }

@@ -55,6 +55,10 @@ class WorldSimulator(
         // crowd members have no schedule worth simulating.
         for (npc in input.npcs) {
             if (!npc.alive || npc.tier == NpcTier.AMBIENT) continue
+            // Anyone the narrative just placed is left exactly where it put them. The simulator
+            // models off-screen drift; overriding the scene that just happened with a daily
+            // schedule would walk a character straight back out of the story's own staging.
+            if (npc.id in input.narrativelyPlacedNpcIds) continue
             if (npc.currentLocationId == input.playerLocationId && elapsed < WorldTime.MINUTES_PER_DAY) continue
 
             val scheduled = npc.schedule.locationAt(input.now.hour)
@@ -161,6 +165,8 @@ data class SimulationInput(
     val threads: List<ThreadRecord>,
     val rumors: List<RumorRecord>,
     val engagedThreadIds: Set<String> = emptySet(),
+    /** Characters this turn's narrative moved or acted on. The simulator leaves them alone. */
+    val narrativelyPlacedNpcIds: Set<String> = emptySet(),
 )
 
 data class WorldNote(

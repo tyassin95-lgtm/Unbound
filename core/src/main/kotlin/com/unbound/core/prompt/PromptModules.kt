@@ -88,6 +88,10 @@ Report changes as deltas, never as absolute values. If the player spends five co
 CURRENCY_CHANGE of -5 — do not state their total. Only reference entity ids that appear in the
 context you were given. Invented ids are discarded.
 
+Report who is standing in the scene at the end of the turn in present_character_ids, using the ids
+you were given. This is how the world knows who saw what, so a character who is in the room and
+left out of that list will not remember the conversation they just had.
+
 time_advance_minutes must reflect what the action actually took: a glance is 0-1, a conversation
 5-20, crossing a city 30-60, a night's sleep 480. Do not advance time for inspecting your own
 inventory.

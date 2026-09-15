@@ -179,6 +179,14 @@ class GameSession(
         val location = location()
         val present = presentNpcs()
         val lastTurn = container.store.recentTurns(gameId, 1).firstOrNull()
+        val turnNumber = game.turnNumber
+        // People met a moment ago are worth being able to draw even if the story has since moved
+        // them on — and it keeps the picker useful for a save made before presence was tracked.
+        val recentlyMet = container.store.persistentNpcs(gameId, 200)
+            .filter { it.alive && present.none { p -> p.id == it.id } }
+            .filter { npc -> npc.lastSeenTurn?.let { turnNumber - it <= RECENTLY_MET_TURNS } == true }
+            .sortedByDescending { it.lastSeenTurn }
+            .take(6)
 
         val unavailable = when {
             game.imageMode == ImageMode.DISABLED ->
@@ -194,6 +202,7 @@ class GameSession(
             locationName = location?.name ?: "here",
             playerName = player.name,
             present = present.map { PicturableNpc(it.id, it.name, it.occupation) },
+            recentlyMet = recentlyMet.map { PicturableNpc(it.id, it.name, it.occupation) },
             turnNumber = game.turnNumber,
         )
     }
@@ -291,6 +300,7 @@ class GameSession(
 
     private companion object {
         const val MOMENT_LIMIT = 420
+        const val RECENTLY_MET_TURNS = 8
 
         val HELP_TEXT = """
             Type whatever you want to do, in your own words. You are not limited to any list.
@@ -325,6 +335,8 @@ data class ImageOptions(
     val locationName: String = "",
     val playerName: String = "",
     val present: List<PicturableNpc> = emptyList(),
+    /** People seen recently who are not in the room right now. */
+    val recentlyMet: List<PicturableNpc> = emptyList(),
     val turnNumber: Int = 0,
 ) {
     val available: Boolean get() = unavailableReason == null

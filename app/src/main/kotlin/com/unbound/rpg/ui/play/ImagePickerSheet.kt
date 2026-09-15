@@ -113,11 +113,29 @@ fun ImagePickerSheet(
 
             if (options.present.isEmpty()) {
                 Text(
-                    "There is nobody else here to draw.",
+                    "There is nobody else here right now.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(vertical = 8.dp),
                 )
+            }
+
+            if (options.recentlyMet.isNotEmpty()) {
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    "MET RECENTLY",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(4.dp))
+                options.recentlyMet.forEach { npc ->
+                    PickerRow(
+                        icon = Icons.Default.Person,
+                        title = npc.name,
+                        subtitle = npc.occupation.ifBlank { "Not here at the moment." },
+                        onClick = { onPick(ImageRequestKind.Person(npc.id)) },
+                    )
+                }
             }
         }
     }

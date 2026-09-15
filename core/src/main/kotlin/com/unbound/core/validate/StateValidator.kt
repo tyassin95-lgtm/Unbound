@@ -1,5 +1,6 @@
 package com.unbound.core.validate
 
+import com.unbound.core.model.EntityKind
 import com.unbound.core.model.FactionRecord
 import com.unbound.core.model.GameRecord
 import com.unbound.core.model.Ids
@@ -25,6 +26,15 @@ data class ValidationContext(
     val reachableLocationIds: Set<String>,
     /** True when the world's own rules permit something ordinary physics would not. */
     val specialRules: List<String> = emptyList(),
+    /**
+     * Ids of entities that exist in this campaign but were not retrieved for this turn.
+     *
+     * Existence and relevance are different questions. The maps above are a *retrieval budget* —
+     * what was worth sending to the model — and treating absence from them as non-existence made
+     * the validator reject perfectly legitimate references, such as telling a guard across town
+     * something with a named source.
+     */
+    val knownEntityIds: Set<String> = emptySet(),
 ) {
     fun entityExists(id: String): Boolean = when {
         id == Ids.PLAYER || id == player.id -> true
@@ -32,7 +42,7 @@ data class ValidationContext(
         locations.containsKey(id) -> true
         factions.containsKey(id) -> true
         items.containsKey(id) -> true
-        else -> false
+        else -> id in knownEntityIds
     }
 
     fun allowsSupernaturalMovement(): Boolean =
@@ -221,47 +231,78 @@ class StateValidator(
         }
 
         // Dead NPCs must not also be given actions.
+        val acceptedActions = mutableListOf<NpcActionDto>()
         for (action in response.npcActions) {
             val npc = ctx.npcs[action.npcId]
-            if (npc == null) {
-                issues += ValidationIssue("UNKNOWN_NPC", "Action for unknown NPC ${action.npcId}.", fatal = false)
-            } else if (!npc.alive || action.npcId in deadNpcs) {
-                issues += ValidationIssue("DEAD_NPC_ACTING", "${npc.name} is dead but was given an action.", fatal = false)
+            when {
+                npc == null ->
+                    issues += ValidationIssue("UNKNOWN_NPC", "Action for unknown NPC ${action.npcId}.", fatal = false)
+                !npc.alive || action.npcId in deadNpcs ->
+                    issues += ValidationIssue("DEAD_NPC_ACTING", "${npc.name} is dead but was given an action.", fatal = false)
+                else -> acceptedActions += action
             }
         }
 
+        val acceptedEvents = mutableListOf<EventDto>()
         for (event in response.events) {
             if (event.eventType() == null) {
                 issues += ValidationIssue("UNKNOWN_EVENT_TYPE", "Unrecognised event type '${event.type}'.", fatal = false)
+                continue
             }
+            // A dangling reference is stripped rather than costing the whole event: the summary is
+            // still true history, it just cannot be attributed to somebody who does not exist.
+            var cleaned = event
             listOfNotNull(event.actorId, event.targetId).forEach { id ->
                 if (!ctx.entityExists(id)) {
                     issues += ValidationIssue("DANGLING_REFERENCE", "Event references unknown entity $id.", fatal = false)
+                    if (cleaned.actorId == id) cleaned = cleaned.copy(actorId = null)
+                    if (cleaned.targetId == id) cleaned = cleaned.copy(targetId = null)
                 }
             }
+            acceptedEvents += cleaned
         }
 
+        val sceneParticipants = ScenePresence.participants(
+            declaredPresentIds = response.presentCharacterIds,
+            npcActions = acceptedActions,
+            events = acceptedEvents,
+            playerLocationId = ctx.player.currentLocationId,
+            knownNpcIds = ctx.npcs.keys,
+            storedPresentIds = ctx.npcs.values
+                .filter { it.currentLocationId == ctx.player.currentLocationId }
+                .map { it.id }
+                .toSet(),
+        )
+
+        val acceptedKnowledge = mutableListOf<KnowledgeChangeDto>()
         for (k in response.knowledgeChanges) {
             if (!ctx.entityExists(k.knowerId)) {
                 issues += ValidationIssue("UNKNOWN_KNOWER", "Knowledge assigned to unknown entity ${k.knowerId}.", fatal = false)
                 continue
             }
-            // An NPC cannot learn something from a source that is not present and not named.
-            val npc = ctx.npcs[k.knowerId]
-            if (npc != null && k.sourceEntityId == null && k.certaintyOrNull() == com.unbound.core.knowledge.Certainty.KNOWN) {
-                val present = npc.currentLocationId == ctx.player.currentLocationId
-                if (!present) {
-                    issues += ValidationIssue(
-                        "IMPOSSIBLE_KNOWLEDGE",
-                        "${npc.name} is not present at ${ctx.player.currentLocationId} and no source was named, " +
-                            "so they cannot come to know '${k.factKey}' first-hand.",
-                        fatal = false,
-                    )
-                }
+            // A character cannot learn something first-hand unless they were in the room. With a
+            // source named, they were told, and where they stand is irrelevant.
+            //
+            // Presence is judged against the scene the narrator just described, not against a
+            // stored location that may predate the character walking over — rejecting knowledge for
+            // someone demonstrably standing in the room was the bug this check once caused.
+            val isCharacter = Ids.kindOf(k.knowerId) == EntityKind.NPC
+            val firstHand = k.sourceEntityId == null &&
+                k.certaintyOrNull() == com.unbound.core.knowledge.Certainty.KNOWN
+            if (isCharacter && firstHand && k.knowerId !in sceneParticipants) {
+                val who = ctx.npcs[k.knowerId]?.name ?: k.knowerId
+                issues += ValidationIssue(
+                    "IMPOSSIBLE_KNOWLEDGE",
+                    "$who is not in this scene and no source was named, so they cannot come to " +
+                        "know '${k.factKey}' first-hand.",
+                    fatal = false,
+                )
+                continue
             }
+            acceptedKnowledge += k
         }
 
-        return ValidationResult(ops, issues)
+        return ValidationResult(ops, issues, acceptedKnowledge, acceptedEvents, acceptedActions)
     }
 
     private fun parseAndCheck(
