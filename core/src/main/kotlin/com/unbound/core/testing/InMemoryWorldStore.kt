@@ -275,6 +275,15 @@ class InMemoryWorldStore : WorldStore {
         events.removeAll { it.gameId == gameId && it.sequence > sequence }
     }
 
+    // --- whole-game enumeration -----------------------------------------------------------------
+    override suspend fun allLocations(gameId: String, limit: Int) = locations.values.filter { it.gameId == gameId }.take(limit)
+    override suspend fun allItems(gameId: String, limit: Int) = items.values.filter { it.gameId == gameId }.take(limit)
+    override suspend fun allRelationships(gameId: String, limit: Int) = relationships.values.filter { it.gameId == gameId }.take(limit)
+    override suspend fun allKnowledge(gameId: String, limit: Int) = knowledge.values.filter { it.gameId == gameId }.take(limit)
+    override suspend fun allMemories(gameId: String, limit: Int) = memories.values.filter { it.gameId == gameId }.take(limit)
+    override suspend fun allRumors(gameId: String, limit: Int) = rumors.values.filter { it.gameId == gameId }.take(limit)
+    override suspend fun allNpcs(gameId: String, limit: Int) = npcs.values.filter { it.gameId == gameId }.take(limit)
+
     // --- turns --------------------------------------------------------------------------------
     override suspend fun upsertTurn(turn: TurnRecord) { turns[turn.id] = turn }
     override suspend fun getTurn(turnId: String) = turns[turnId]

@@ -28,6 +28,7 @@ data class TurnResponseDto(
     @SerialName("thread_changes") val threadChanges: List<ThreadChangeDto> = emptyList(),
     @SerialName("npc_actions") val npcActions: List<NpcActionDto> = emptyList(),
     @SerialName("world_changes") val worldChanges: List<WorldChangeDto> = emptyList(),
+    @SerialName("new_characters") val newCharacters: List<NewCharacterDto> = emptyList(),
     @SerialName("suggested_actions") val suggestedActions: List<String> = emptyList(),
     @SerialName("scene_is_significant") val sceneIsSignificant: Boolean = false,
 )
@@ -113,6 +114,22 @@ data class NpcActionDto(
     val action: String,
     @SerialName("moves_to_location_id") val movesToLocationId: String? = null,
     @SerialName("becomes_hostile") val becomesHostile: Boolean = false,
+)
+
+/**
+ * A person who has just become worth remembering. Age is required and must be an explicit integer;
+ * the content guard rejects anything else rather than inferring adulthood (§56).
+ */
+@Serializable
+data class NewCharacterDto(
+    val name: String,
+    val age: Int,
+    val gender: String = "",
+    val appearance: String,
+    val occupation: String = "",
+    val personality: String = "",
+    val wants: String = "",
+    @SerialName("location_id") val locationId: String? = null,
 )
 
 @Serializable

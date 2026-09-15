@@ -43,6 +43,7 @@ object TurnSchema {
             put("thread_changes", arraySchema(threadSchema()))
             put("npc_actions", arraySchema(npcActionSchema()))
             put("world_changes", arraySchema(worldChangeSchema()))
+            put("new_characters", arraySchema(newCharacterSchema()))
             putJsonObject("suggested_actions") {
                 put("type", "array")
                 put("description", "3-5 hints of different kinds. Never a whitelist of legal moves.")
@@ -53,7 +54,7 @@ object TurnSchema {
             listOf(
                 "narrative", "time_advance_minutes", "scene_is_significant", "events", "state_changes",
                 "knowledge_changes", "relationship_changes", "memory_candidates", "thread_changes",
-                "npc_actions", "world_changes", "suggested_actions",
+                "npc_actions", "world_changes", "new_characters", "suggested_actions",
             ).forEach { add(it) }
         }
     }
@@ -225,6 +226,20 @@ object TurnSchema {
             put("action", str("What they did, one sentence."))
             put("moves_to_location_id", nullableStr())
             put("becomes_hostile", bool())
+        },
+    )
+
+    private fun newCharacterSchema() = obj(
+        listOf("name", "age", "gender", "appearance", "occupation", "personality", "wants", "location_id"),
+        buildJsonObject {
+            put("name", str("The character's name."))
+            put("age", int("Required. An explicit integer age. Never omit or guess this."))
+            put("gender", str())
+            put("appearance", str("Concrete visual facts: face, hair, skin, build, clothing, marks."))
+            put("occupation", str())
+            put("personality", str())
+            put("wants", str("What they are trying to get."))
+            put("location_id", nullableStr("Where they are. Defaults to the player's location."))
         },
     )
 

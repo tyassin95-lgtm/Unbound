@@ -109,10 +109,11 @@ class TurnPipeline(
             return TurnOutcome.Failure("Could not assemble the world state for this turn.", AIErrorKind.UNKNOWN, retryable = true)
         }
 
+        val guardClause = com.unbound.core.safety.ContentGuard.sceneClause(player, assembly.context.presentNpcs)
         val request = AITextRequest(
             modelId = game.textModelId,
             stableSystemPrompt = PromptModules.stableSystemPrompt(),
-            dynamicContext = assembly.dynamicContext,
+            dynamicContext = if (guardClause == null) assembly.dynamicContext else assembly.dynamicContext + "\n\n## " + guardClause,
             userInput = playerInput,
             jsonSchema = TurnSchema.schema(),
             schemaName = "unbound_turn",
@@ -703,6 +704,39 @@ class TurnPipeline(
                     )
                 }
             }
+        }
+
+        // --- new characters ---------------------------------------------------------------------
+        // The world must be able to gain people, but only on the content guard's terms: an
+        // explicit age or the character is discarded.
+        for (dto in response.newCharacters) {
+            if (dto.name.isBlank() || dto.age <= 0) {
+                continue
+            }
+            val existing = store.persistentNpcs(game.id, 300).firstOrNull { it.name.equals(dto.name, ignoreCase = true) }
+            if (existing != null) continue
+            val created = NpcRecord(
+                id = Ids.npc(idFactory()),
+                gameId = game.id,
+                name = dto.name,
+                age = dto.age,
+                gender = dto.gender,
+                appearance = Appearance(summary = dto.appearance),
+                occupation = dto.occupation,
+                personality = dto.personality,
+                currentPlan = dto.wants,
+                currentLocationId = dto.locationId?.takeIf { store.getLocation(game.id, it) != null }
+                    ?: updatedPlayer.currentLocationId,
+                // Semi-persistent: they exist because they were met, and are promoted to fully
+                // persistent only if the player keeps dealing with them.
+                tier = NpcTier.SEMI_PERSISTENT,
+                firstEncounteredTurn = turn.turnNumber,
+                lastSeenTurn = turn.turnNumber,
+                lastSeenWorldMinutes = newWorldTime.totalMinutes,
+                introduced = true,
+            )
+            npcEdits[created.id] = created
+            emit(EventType.NPC_INTRODUCED, "Met ${created.name}, ${created.occupation.ifBlank { "age ${created.age}" }}.", Importance.LOW, targetId = created.id)
         }
 
         // --- npc actions --------------------------------------------------------------------------

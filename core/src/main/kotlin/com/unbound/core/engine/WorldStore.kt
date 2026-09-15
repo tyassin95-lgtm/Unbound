@@ -137,6 +137,22 @@ interface WorldStore {
     suspend fun countEvents(gameId: String): Int
     suspend fun deleteEventsAfterSequence(gameId: String, sequence: Long)
 
+    // --- whole-game enumeration -----------------------------------------------------------------
+    /**
+     * Full-table reads, for export and migration only.
+     *
+     * These are the deliberate exceptions to the "every read is bounded" rule, and they are named
+     * so that their cost is obvious at the call site. They must never be used to build a prompt or
+     * to populate a screen — [limit] exists so that even a runaway save cannot exhaust memory.
+     */
+    suspend fun allLocations(gameId: String, limit: Int = 20_000): List<LocationRecord>
+    suspend fun allItems(gameId: String, limit: Int = 20_000): List<ItemRecord>
+    suspend fun allRelationships(gameId: String, limit: Int = 20_000): List<RelationshipRecord>
+    suspend fun allKnowledge(gameId: String, limit: Int = 50_000): List<KnowledgeRecord>
+    suspend fun allMemories(gameId: String, limit: Int = 50_000): List<MemoryRecord>
+    suspend fun allRumors(gameId: String, limit: Int = 20_000): List<RumorRecord>
+    suspend fun allNpcs(gameId: String, limit: Int = 20_000): List<NpcRecord>
+
     // --- turns --------------------------------------------------------------------------------
     suspend fun upsertTurn(turn: TurnRecord)
     suspend fun getTurn(turnId: String): TurnRecord?
