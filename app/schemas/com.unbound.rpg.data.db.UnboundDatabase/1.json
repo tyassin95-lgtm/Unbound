@@ -1,0 +1,1713 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 1,
+    "identityHash": "f145e699e3ce0f8f5deaf489a417c00e",
+    "entities": [
+      {
+        "tableName": "games",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `title` TEXT NOT NULL, `settingId` TEXT NOT NULL, `settingName` TEXT NOT NULL, `createdAtEpochMs` INTEGER NOT NULL, `updatedAtEpochMs` INTEGER NOT NULL, `turnNumber` INTEGER NOT NULL, `currentLocationId` TEXT NOT NULL, `worldMinutes` INTEGER NOT NULL, `stateVersion` INTEGER NOT NULL, `textModelId` TEXT NOT NULL, `payload` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "settingId",
+            "columnName": "settingId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "settingName",
+            "columnName": "settingName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtEpochMs",
+            "columnName": "createdAtEpochMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtEpochMs",
+            "columnName": "updatedAtEpochMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "turnNumber",
+            "columnName": "turnNumber",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "currentLocationId",
+            "columnName": "currentLocationId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "worldMinutes",
+            "columnName": "worldMinutes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "stateVersion",
+            "columnName": "stateVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "textModelId",
+            "columnName": "textModelId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "payload",
+            "columnName": "payload",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "worlds",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`gameId` TEXT NOT NULL, `payload` TEXT NOT NULL, PRIMARY KEY(`gameId`), FOREIGN KEY(`gameId`) REFERENCES `games`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "gameId",
+            "columnName": "gameId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "payload",
+            "columnName": "payload",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "gameId"
+          ]
+        },
+        "foreignKeys": [
+          {
+            "table": "games",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "gameId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "players",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`gameId` TEXT NOT NULL, `name` TEXT NOT NULL, `currentLocationId` TEXT NOT NULL, `payload` TEXT NOT NULL, PRIMARY KEY(`gameId`), FOREIGN KEY(`gameId`) REFERENCES `games`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "gameId",
+            "columnName": "gameId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "currentLocationId",
+            "columnName": "currentLocationId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "payload",
+            "columnName": "payload",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "gameId"
+          ]
+        },
+        "foreignKeys": [
+          {
+            "table": "games",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "gameId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "npcs",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `gameId` TEXT NOT NULL, `name` TEXT NOT NULL, `currentLocationId` TEXT NOT NULL, `tier` TEXT NOT NULL, `alive` INTEGER NOT NULL, `payload` TEXT NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`gameId`) REFERENCES `games`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "gameId",
+            "columnName": "gameId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "currentLocationId",
+            "columnName": "currentLocationId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tier",
+            "columnName": "tier",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "alive",
+            "columnName": "alive",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "payload",
+            "columnName": "payload",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_npcs_gameId",
+            "unique": false,
+            "columnNames": [
+              "gameId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_npcs_gameId` ON `${TABLE_NAME}` (`gameId`)"
+          },
+          {
+            "name": "index_npcs_gameId_currentLocationId",
+            "unique": false,
+            "columnNames": [
+              "gameId",
+              "currentLocationId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_npcs_gameId_currentLocationId` ON `${TABLE_NAME}` (`gameId`, `currentLocationId`)"
+          },
+          {
+            "name": "index_npcs_gameId_tier",
+            "unique": false,
+            "columnNames": [
+              "gameId",
+              "tier"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_npcs_gameId_tier` ON `${TABLE_NAME}` (`gameId`, `tier`)"
+          },
+          {
+            "name": "index_npcs_gameId_name",
+            "unique": false,
+            "columnNames": [
+              "gameId",
+              "name"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_npcs_gameId_name` ON `${TABLE_NAME}` (`gameId`, `name`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "games",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "gameId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "locations",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `gameId` TEXT NOT NULL, `name` TEXT NOT NULL, `discovered` INTEGER NOT NULL, `payload` TEXT NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`gameId`) REFERENCES `games`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "gameId",
+            "columnName": "gameId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "discovered",
+            "columnName": "discovered",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "payload",
+            "columnName": "payload",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_locations_gameId",
+            "unique": false,
+            "columnNames": [
+              "gameId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_locations_gameId` ON `${TABLE_NAME}` (`gameId`)"
+          },
+          {
+            "name": "index_locations_gameId_discovered",
+            "unique": false,
+            "columnNames": [
+              "gameId",
+              "discovered"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_locations_gameId_discovered` ON `${TABLE_NAME}` (`gameId`, `discovered`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "games",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "gameId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "factions",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `gameId` TEXT NOT NULL, `name` TEXT NOT NULL, `payload` TEXT NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`gameId`) REFERENCES `games`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "gameId",
+            "columnName": "gameId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "payload",
+            "columnName": "payload",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_factions_gameId",
+            "unique": false,
+            "columnNames": [
+              "gameId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_factions_gameId` ON `${TABLE_NAME}` (`gameId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "games",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "gameId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "items",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `gameId` TEXT NOT NULL, `name` TEXT NOT NULL, `ownerId` TEXT, `locationId` TEXT, `destroyed` INTEGER NOT NULL, `payload` TEXT NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`gameId`) REFERENCES `games`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "gameId",
+            "columnName": "gameId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ownerId",
+            "columnName": "ownerId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "locationId",
+            "columnName": "locationId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "destroyed",
+            "columnName": "destroyed",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "payload",
+            "columnName": "payload",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_items_gameId",
+            "unique": false,
+            "columnNames": [
+              "gameId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_items_gameId` ON `${TABLE_NAME}` (`gameId`)"
+          },
+          {
+            "name": "index_items_gameId_ownerId",
+            "unique": false,
+            "columnNames": [
+              "gameId",
+              "ownerId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_items_gameId_ownerId` ON `${TABLE_NAME}` (`gameId`, `ownerId`)"
+          },
+          {
+            "name": "index_items_gameId_locationId",
+            "unique": false,
+            "columnNames": [
+              "gameId",
+              "locationId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_items_gameId_locationId` ON `${TABLE_NAME}` (`gameId`, `locationId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "games",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "gameId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "threads",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `gameId` TEXT NOT NULL, `title` TEXT NOT NULL, `terminal` INTEGER NOT NULL, `rank` INTEGER NOT NULL, `payload` TEXT NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`gameId`) REFERENCES `games`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "gameId",
+            "columnName": "gameId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "terminal",
+            "columnName": "terminal",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rank",
+            "columnName": "rank",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "payload",
+            "columnName": "payload",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_threads_gameId",
+            "unique": false,
+            "columnNames": [
+              "gameId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_threads_gameId` ON `${TABLE_NAME}` (`gameId`)"
+          },
+          {
+            "name": "index_threads_gameId_terminal",
+            "unique": false,
+            "columnNames": [
+              "gameId",
+              "terminal"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_threads_gameId_terminal` ON `${TABLE_NAME}` (`gameId`, `terminal`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "games",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "gameId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "relationships",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `gameId` TEXT NOT NULL, `fromEntityId` TEXT NOT NULL, `toEntityId` TEXT NOT NULL, `payload` TEXT NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`gameId`) REFERENCES `games`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "gameId",
+            "columnName": "gameId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fromEntityId",
+            "columnName": "fromEntityId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "toEntityId",
+            "columnName": "toEntityId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "payload",
+            "columnName": "payload",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_relationships_gameId_fromEntityId",
+            "unique": false,
+            "columnNames": [
+              "gameId",
+              "fromEntityId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_relationships_gameId_fromEntityId` ON `${TABLE_NAME}` (`gameId`, `fromEntityId`)"
+          },
+          {
+            "name": "index_relationships_gameId_fromEntityId_toEntityId",
+            "unique": true,
+            "columnNames": [
+              "gameId",
+              "fromEntityId",
+              "toEntityId"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_relationships_gameId_fromEntityId_toEntityId` ON `${TABLE_NAME}` (`gameId`, `fromEntityId`, `toEntityId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "games",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "gameId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "knowledge",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `gameId` TEXT NOT NULL, `knowerId` TEXT NOT NULL, `factKey` TEXT NOT NULL, `certainty` INTEGER NOT NULL, `importance` INTEGER NOT NULL, `learnedAtWorldMinutes` INTEGER NOT NULL, `payload` TEXT NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`gameId`) REFERENCES `games`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "gameId",
+            "columnName": "gameId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "knowerId",
+            "columnName": "knowerId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "factKey",
+            "columnName": "factKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "certainty",
+            "columnName": "certainty",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "importance",
+            "columnName": "importance",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "learnedAtWorldMinutes",
+            "columnName": "learnedAtWorldMinutes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "payload",
+            "columnName": "payload",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_knowledge_gameId_knowerId",
+            "unique": false,
+            "columnNames": [
+              "gameId",
+              "knowerId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_knowledge_gameId_knowerId` ON `${TABLE_NAME}` (`gameId`, `knowerId`)"
+          },
+          {
+            "name": "index_knowledge_gameId_knowerId_factKey",
+            "unique": true,
+            "columnNames": [
+              "gameId",
+              "knowerId",
+              "factKey"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_knowledge_gameId_knowerId_factKey` ON `${TABLE_NAME}` (`gameId`, `knowerId`, `factKey`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "games",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "gameId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "knowledge_subjects",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`knowledgeId` TEXT NOT NULL, `entityId` TEXT NOT NULL, `gameId` TEXT NOT NULL, PRIMARY KEY(`knowledgeId`, `entityId`), FOREIGN KEY(`knowledgeId`) REFERENCES `knowledge`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "knowledgeId",
+            "columnName": "knowledgeId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entityId",
+            "columnName": "entityId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "gameId",
+            "columnName": "gameId",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "knowledgeId",
+            "entityId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_knowledge_subjects_gameId_entityId",
+            "unique": false,
+            "columnNames": [
+              "gameId",
+              "entityId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_knowledge_subjects_gameId_entityId` ON `${TABLE_NAME}` (`gameId`, `entityId`)"
+          },
+          {
+            "name": "index_knowledge_subjects_knowledgeId",
+            "unique": false,
+            "columnNames": [
+              "knowledgeId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_knowledge_subjects_knowledgeId` ON `${TABLE_NAME}` (`knowledgeId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "knowledge",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "knowledgeId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "rumors",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `gameId` TEXT NOT NULL, `factKey` TEXT NOT NULL, `virality` INTEGER NOT NULL, `payload` TEXT NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`gameId`) REFERENCES `games`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "gameId",
+            "columnName": "gameId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "factKey",
+            "columnName": "factKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "virality",
+            "columnName": "virality",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "payload",
+            "columnName": "payload",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_rumors_gameId_virality",
+            "unique": false,
+            "columnNames": [
+              "gameId",
+              "virality"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_rumors_gameId_virality` ON `${TABLE_NAME}` (`gameId`, `virality`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "games",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "gameId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "memories",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `gameId` TEXT NOT NULL, `ownerId` TEXT NOT NULL, `locationId` TEXT, `threadId` TEXT, `importance` INTEGER NOT NULL, `lastReinforcedWorldMinutes` INTEGER NOT NULL, `payload` TEXT NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`gameId`) REFERENCES `games`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "gameId",
+            "columnName": "gameId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ownerId",
+            "columnName": "ownerId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "locationId",
+            "columnName": "locationId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "threadId",
+            "columnName": "threadId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "importance",
+            "columnName": "importance",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastReinforcedWorldMinutes",
+            "columnName": "lastReinforcedWorldMinutes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "payload",
+            "columnName": "payload",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_memories_gameId_ownerId",
+            "unique": false,
+            "columnNames": [
+              "gameId",
+              "ownerId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_memories_gameId_ownerId` ON `${TABLE_NAME}` (`gameId`, `ownerId`)"
+          },
+          {
+            "name": "index_memories_gameId_importance",
+            "unique": false,
+            "columnNames": [
+              "gameId",
+              "importance"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_memories_gameId_importance` ON `${TABLE_NAME}` (`gameId`, `importance`)"
+          },
+          {
+            "name": "index_memories_gameId_locationId",
+            "unique": false,
+            "columnNames": [
+              "gameId",
+              "locationId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_memories_gameId_locationId` ON `${TABLE_NAME}` (`gameId`, `locationId`)"
+          },
+          {
+            "name": "index_memories_gameId_threadId",
+            "unique": false,
+            "columnNames": [
+              "gameId",
+              "threadId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_memories_gameId_threadId` ON `${TABLE_NAME}` (`gameId`, `threadId`)"
+          },
+          {
+            "name": "index_memories_gameId_lastReinforcedWorldMinutes",
+            "unique": false,
+            "columnNames": [
+              "gameId",
+              "lastReinforcedWorldMinutes"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_memories_gameId_lastReinforcedWorldMinutes` ON `${TABLE_NAME}` (`gameId`, `lastReinforcedWorldMinutes`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "games",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "gameId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "memory_entities",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`memoryId` TEXT NOT NULL, `entityId` TEXT NOT NULL, `gameId` TEXT NOT NULL, PRIMARY KEY(`memoryId`, `entityId`), FOREIGN KEY(`memoryId`) REFERENCES `memories`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "memoryId",
+            "columnName": "memoryId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entityId",
+            "columnName": "entityId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "gameId",
+            "columnName": "gameId",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "memoryId",
+            "entityId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_memory_entities_gameId_entityId",
+            "unique": false,
+            "columnNames": [
+              "gameId",
+              "entityId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_memory_entities_gameId_entityId` ON `${TABLE_NAME}` (`gameId`, `entityId`)"
+          },
+          {
+            "name": "index_memory_entities_memoryId",
+            "unique": false,
+            "columnNames": [
+              "memoryId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_memory_entities_memoryId` ON `${TABLE_NAME}` (`memoryId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "memories",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "memoryId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "summaries",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `gameId` TEXT NOT NULL, `coversToTurn` INTEGER NOT NULL, `payload` TEXT NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`gameId`) REFERENCES `games`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "gameId",
+            "columnName": "gameId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "coversToTurn",
+            "columnName": "coversToTurn",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "payload",
+            "columnName": "payload",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_summaries_gameId_coversToTurn",
+            "unique": false,
+            "columnNames": [
+              "gameId",
+              "coversToTurn"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_summaries_gameId_coversToTurn` ON `${TABLE_NAME}` (`gameId`, `coversToTurn`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "games",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "gameId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "events",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `gameId` TEXT NOT NULL, `sequence` INTEGER NOT NULL, `worldMinutes` INTEGER NOT NULL, `importance` INTEGER NOT NULL, `actorId` TEXT, `targetId` TEXT, `payload` TEXT NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`gameId`) REFERENCES `games`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "gameId",
+            "columnName": "gameId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sequence",
+            "columnName": "sequence",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "worldMinutes",
+            "columnName": "worldMinutes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "importance",
+            "columnName": "importance",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "actorId",
+            "columnName": "actorId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "targetId",
+            "columnName": "targetId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "payload",
+            "columnName": "payload",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_events_gameId_sequence",
+            "unique": false,
+            "columnNames": [
+              "gameId",
+              "sequence"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_events_gameId_sequence` ON `${TABLE_NAME}` (`gameId`, `sequence`)"
+          },
+          {
+            "name": "index_events_gameId_importance_worldMinutes",
+            "unique": false,
+            "columnNames": [
+              "gameId",
+              "importance",
+              "worldMinutes"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_events_gameId_importance_worldMinutes` ON `${TABLE_NAME}` (`gameId`, `importance`, `worldMinutes`)"
+          },
+          {
+            "name": "index_events_gameId_actorId",
+            "unique": false,
+            "columnNames": [
+              "gameId",
+              "actorId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_events_gameId_actorId` ON `${TABLE_NAME}` (`gameId`, `actorId`)"
+          },
+          {
+            "name": "index_events_gameId_targetId",
+            "unique": false,
+            "columnNames": [
+              "gameId",
+              "targetId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_events_gameId_targetId` ON `${TABLE_NAME}` (`gameId`, `targetId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "games",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "gameId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "event_entities",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`eventId` TEXT NOT NULL, `entityId` TEXT NOT NULL, `gameId` TEXT NOT NULL, PRIMARY KEY(`eventId`, `entityId`), FOREIGN KEY(`eventId`) REFERENCES `events`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "eventId",
+            "columnName": "eventId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entityId",
+            "columnName": "entityId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "gameId",
+            "columnName": "gameId",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "eventId",
+            "entityId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_event_entities_gameId_entityId",
+            "unique": false,
+            "columnNames": [
+              "gameId",
+              "entityId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_event_entities_gameId_entityId` ON `${TABLE_NAME}` (`gameId`, `entityId`)"
+          },
+          {
+            "name": "index_event_entities_eventId",
+            "unique": false,
+            "columnNames": [
+              "eventId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_event_entities_eventId` ON `${TABLE_NAME}` (`eventId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "events",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "eventId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "turns",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `gameId` TEXT NOT NULL, `turnNumber` INTEGER NOT NULL, `status` TEXT NOT NULL, `idempotencyKey` TEXT NOT NULL, `payload` TEXT NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`gameId`) REFERENCES `games`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "gameId",
+            "columnName": "gameId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "turnNumber",
+            "columnName": "turnNumber",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "idempotencyKey",
+            "columnName": "idempotencyKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "payload",
+            "columnName": "payload",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_turns_gameId_turnNumber",
+            "unique": false,
+            "columnNames": [
+              "gameId",
+              "turnNumber"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_turns_gameId_turnNumber` ON `${TABLE_NAME}` (`gameId`, `turnNumber`)"
+          },
+          {
+            "name": "index_turns_gameId_idempotencyKey",
+            "unique": true,
+            "columnNames": [
+              "gameId",
+              "idempotencyKey"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_turns_gameId_idempotencyKey` ON `${TABLE_NAME}` (`gameId`, `idempotencyKey`)"
+          },
+          {
+            "name": "index_turns_gameId_status",
+            "unique": false,
+            "columnNames": [
+              "gameId",
+              "status"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_turns_gameId_status` ON `${TABLE_NAME}` (`gameId`, `status`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "games",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "gameId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "snapshots",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `gameId` TEXT NOT NULL, `turnNumber` INTEGER NOT NULL, `stateVersion` INTEGER NOT NULL, `worldMinutes` INTEGER NOT NULL, `createdAtEpochMs` INTEGER NOT NULL, `reason` TEXT NOT NULL, `payloadJson` TEXT NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`gameId`) REFERENCES `games`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "gameId",
+            "columnName": "gameId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "turnNumber",
+            "columnName": "turnNumber",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "stateVersion",
+            "columnName": "stateVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "worldMinutes",
+            "columnName": "worldMinutes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtEpochMs",
+            "columnName": "createdAtEpochMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "reason",
+            "columnName": "reason",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "payloadJson",
+            "columnName": "payloadJson",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_snapshots_gameId_turnNumber",
+            "unique": false,
+            "columnNames": [
+              "gameId",
+              "turnNumber"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_snapshots_gameId_turnNumber` ON `${TABLE_NAME}` (`gameId`, `turnNumber`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "games",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "gameId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "images",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `gameId` TEXT NOT NULL, `entityId` TEXT, `canonical` INTEGER NOT NULL, `createdAtEpochMs` INTEGER NOT NULL, `payload` TEXT NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`gameId`) REFERENCES `games`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "gameId",
+            "columnName": "gameId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entityId",
+            "columnName": "entityId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "canonical",
+            "columnName": "canonical",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtEpochMs",
+            "columnName": "createdAtEpochMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "payload",
+            "columnName": "payload",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_images_gameId_entityId",
+            "unique": false,
+            "columnNames": [
+              "gameId",
+              "entityId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_images_gameId_entityId` ON `${TABLE_NAME}` (`gameId`, `entityId`)"
+          },
+          {
+            "name": "index_images_gameId_entityId_canonical",
+            "unique": false,
+            "columnNames": [
+              "gameId",
+              "entityId",
+              "canonical"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_images_gameId_entityId_canonical` ON `${TABLE_NAME}` (`gameId`, `entityId`, `canonical`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "games",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "gameId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "usage_records",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `gameId` TEXT, `turnId` TEXT, `timestampMs` INTEGER NOT NULL, `requestType` TEXT NOT NULL, `modelId` TEXT NOT NULL, `inputTokens` INTEGER NOT NULL, `outputTokens` INTEGER NOT NULL, `cachedTokens` INTEGER NOT NULL, `estimatedCostUsd` REAL NOT NULL, `latencyMs` INTEGER NOT NULL, `success` INTEGER NOT NULL, `retryCount` INTEGER NOT NULL, `errorKind` TEXT, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "gameId",
+            "columnName": "gameId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "turnId",
+            "columnName": "turnId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "timestampMs",
+            "columnName": "timestampMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "requestType",
+            "columnName": "requestType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "modelId",
+            "columnName": "modelId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "inputTokens",
+            "columnName": "inputTokens",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "outputTokens",
+            "columnName": "outputTokens",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cachedTokens",
+            "columnName": "cachedTokens",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "estimatedCostUsd",
+            "columnName": "estimatedCostUsd",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "latencyMs",
+            "columnName": "latencyMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "success",
+            "columnName": "success",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "retryCount",
+            "columnName": "retryCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "errorKind",
+            "columnName": "errorKind",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_usage_records_gameId",
+            "unique": false,
+            "columnNames": [
+              "gameId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_usage_records_gameId` ON `${TABLE_NAME}` (`gameId`)"
+          },
+          {
+            "name": "index_usage_records_timestampMs",
+            "unique": false,
+            "columnNames": [
+              "timestampMs"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_usage_records_timestampMs` ON `${TABLE_NAME}` (`timestampMs`)"
+          }
+        ]
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'f145e699e3ce0f8f5deaf489a417c00e')"
+    ]
+  }
+}
