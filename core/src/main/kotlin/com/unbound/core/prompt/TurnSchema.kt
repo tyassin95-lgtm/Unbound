@@ -44,6 +44,16 @@ object TurnSchema {
             put("npc_actions", arraySchema(npcActionSchema()))
             put("world_changes", arraySchema(worldChangeSchema()))
             put("new_characters", arraySchema(newCharacterSchema()))
+            putJsonObject("player_dialogue") {
+                put("type", "array")
+                put(
+                    "description",
+                    "Every line the protagonist speaks aloud this turn, copied EXACTLY as it " +
+                        "appears inside the narrative, without the surrounding quotation marks. " +
+                        "Empty when they did not speak.",
+                )
+                putJsonObject("items") { put("type", "string") }
+            }
             putJsonObject("suggested_actions") {
                 put("type", "array")
                 put("description", "3-5 hints of different kinds. Never a whitelist of legal moves.")
@@ -54,7 +64,7 @@ object TurnSchema {
             listOf(
                 "narrative", "time_advance_minutes", "scene_is_significant", "events", "state_changes",
                 "knowledge_changes", "relationship_changes", "memory_candidates", "thread_changes",
-                "npc_actions", "world_changes", "new_characters", "suggested_actions",
+                "npc_actions", "world_changes", "new_characters", "player_dialogue", "suggested_actions",
             ).forEach { add(it) }
         }
     }

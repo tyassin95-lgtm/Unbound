@@ -37,6 +37,8 @@ data class TurnRecord(
     val worldMinutesAfter: Long? = null,
     val modelId: String? = null,
     val suggestedActions: List<String> = emptyList(),
+    /** Lines the protagonist spoke this turn, so the narrative can still be coloured after reload. */
+    val playerDialogue: List<String> = emptyList(),
     val errorMessage: String? = null,
     val imageId: String? = null,
 )

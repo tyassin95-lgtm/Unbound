@@ -31,6 +31,15 @@ data class TurnResponseDto(
     @SerialName("new_characters") val newCharacters: List<NewCharacterDto> = emptyList(),
     @SerialName("suggested_actions") val suggestedActions: List<String> = emptyList(),
     @SerialName("scene_is_significant") val sceneIsSignificant: Boolean = false,
+    /**
+     * What the protagonist said aloud this turn, copied verbatim from [narrative].
+     *
+     * This exists so the app can colour the player's own words without having to guess which of
+     * several quoted lines were theirs. Because the model produces the same string twice, the
+     * renderer can match it exactly rather than parsing attribution, which is why this is a field
+     * rather than an inline marker that could be mangled.
+     */
+    @SerialName("player_dialogue") val playerDialogue: List<String> = emptyList(),
 )
 
 @Serializable

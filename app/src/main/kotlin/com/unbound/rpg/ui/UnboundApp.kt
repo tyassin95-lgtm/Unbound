@@ -124,7 +124,7 @@ fun UnboundApp(container: AppContainer) {
                 },
                 creation = creation,
                 customWorld = customWorld,
-                openings = openings,
+                suggestions = openings,
                 onGenerateWorld = appViewModel::generateCustomWorld,
                 onGenerateOpenings = appViewModel::generateOpenings,
                 onClearGeneratedWorld = appViewModel::clearGeneratedWorld,

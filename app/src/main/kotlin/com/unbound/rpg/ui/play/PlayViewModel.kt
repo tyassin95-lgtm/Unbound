@@ -11,6 +11,8 @@ import com.unbound.core.model.PlayerRecord
 import com.unbound.core.model.WorldRecord
 import com.unbound.rpg.domain.AppContainer
 import com.unbound.rpg.domain.GameSession
+import com.unbound.rpg.domain.ImageOptions
+import com.unbound.rpg.domain.ImageRequestKind
 import com.unbound.rpg.domain.SessionResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -30,6 +32,8 @@ sealed interface SceneEntry {
         override val id: String,
         val text: String,
         val turnNumber: Int,
+        /** Lines the protagonist spoke, used to colour their own words in the prose. */
+        val playerDialogue: List<String> = emptyList(),
         val diagnostics: TurnDiagnostics? = null,
         val rejected: List<String> = emptyList(),
     ) : SceneEntry
@@ -51,6 +55,9 @@ data class PlayUiState(
     val errorRetryable: Boolean = false,
     val developerMode: Boolean = false,
     val canLoadMore: Boolean = false,
+    /** Rebuilt every turn, so the picture menu always reflects the scene as it stands now. */
+    val imageOptions: ImageOptions = ImageOptions(),
+    val generatingImage: Boolean = false,
 )
 
 class PlayViewModel(
@@ -72,7 +79,7 @@ class PlayViewModel(
             val entries = history.flatMap { turn ->
                 listOf(
                     SceneEntry.PlayerAction(nextId(), turn.playerInput),
-                    SceneEntry.Narration(nextId(), turn.narrative, turn.turnNumber),
+                    SceneEntry.Narration(nextId(), turn.narrative, turn.turnNumber, turn.playerDialogue),
                 )
             }
             _state.update {
@@ -100,6 +107,7 @@ class PlayViewModel(
                 world = session.world(),
                 location = session.location(),
                 presentNpcs = session.presentNpcs(),
+                imageOptions = session.imageOptions(),
             )
         }
     }
@@ -117,7 +125,7 @@ class PlayViewModel(
             val prepend = older.flatMap { turn ->
                 listOf(
                     SceneEntry.PlayerAction(nextId(), turn.playerInput),
-                    SceneEntry.Narration(nextId(), turn.narrative, turn.turnNumber),
+                    SceneEntry.Narration(nextId(), turn.narrative, turn.turnNumber, turn.playerDialogue),
                 )
             }
             _state.update { it.copy(entries = prepend + it.entries, canLoadMore = older.size >= PAGE) }
@@ -143,7 +151,8 @@ class PlayViewModel(
                     _state.update {
                         it.copy(
                             entries = it.entries + SceneEntry.Narration(
-                                nextId(), result.narrative, result.turnNumber, result.diagnostics, result.rejected,
+                                nextId(), result.narrative, result.turnNumber, result.playerDialogue,
+                                result.diagnostics, result.rejected,
                             ),
                             suggestedActions = result.suggestedActions,
                             thinking = false,
@@ -171,7 +180,7 @@ class PlayViewModel(
                             entries = history.flatMap { turn ->
                                 listOf(
                                     SceneEntry.PlayerAction(nextId(), turn.playerInput),
-                                    SceneEntry.Narration(nextId(), turn.narrative, turn.turnNumber),
+                                    SceneEntry.Narration(nextId(), turn.narrative, turn.turnNumber, turn.playerDialogue),
                                 )
                             } + SceneEntry.SystemNote(
                                 nextId(),
@@ -228,7 +237,8 @@ class PlayViewModel(
                     _state.update {
                         it.copy(
                             entries = it.entries + SceneEntry.Narration(
-                                nextId(), result.narrative, result.turnNumber, result.diagnostics, result.rejected,
+                                nextId(), result.narrative, result.turnNumber, result.playerDialogue,
+                                result.diagnostics, result.rejected,
                             ),
                             suggestedActions = result.suggestedActions,
                             thinking = false,
@@ -242,6 +252,46 @@ class PlayViewModel(
                 else -> _state.update { it.copy(thinking = false) }
             }
         }
+    }
+
+    /**
+     * Pictures are requested explicitly and generated one at a time, because each one is a separate
+     * charge on the player's own key. The button disables itself while a request is in flight
+     * rather than queueing.
+     */
+    fun requestImage(kind: ImageRequestKind) {
+        if (_state.value.generatingImage) return
+        _state.update { it.copy(generatingImage = true) }
+        viewModelScope.launch {
+            when (val result = session.generateImage(kind)) {
+                is SessionResult.ImageReady -> _state.update {
+                    it.copy(
+                        generatingImage = false,
+                        entries = it.entries + SceneEntry.Picture(
+                            nextId(), result.image, captionFor(kind, result.fromCache),
+                        ),
+                    )
+                }
+                is SessionResult.LocalAnswer -> _state.update {
+                    it.copy(generatingImage = false, entries = it.entries + SceneEntry.SystemNote(nextId(), result.text))
+                }
+                else -> _state.update { it.copy(generatingImage = false) }
+            }
+        }
+    }
+
+    private fun captionFor(kind: ImageRequestKind, fromCache: Boolean): String {
+        val what = when (kind) {
+            is ImageRequestKind.Scene -> "This moment"
+            is ImageRequestKind.Place -> _state.value.location?.name ?: "This place"
+            is ImageRequestKind.Person -> if (kind.npcId == null) {
+                _state.value.player?.name ?: "You"
+            } else {
+                _state.value.presentNpcs.firstOrNull { it.id == kind.npcId }?.name ?: "A face"
+            }
+            is ImageRequestKind.Interaction -> "Between you"
+        }
+        return if (fromCache) "$what · already on this device" else what
     }
 
     fun dismissError() = _state.update { it.copy(error = null) }

@@ -49,7 +49,16 @@ class OpeningGenerator(
             .distinctBy { it.situation }
             .take(MAX_OPENINGS)
 
-        return OpeningGenerationResult(openings, response.usage, response.modelId)
+        return OpeningGenerationResult(
+            openings = openings,
+            // Negative money is never a sensible start; beyond that the model's judgement stands,
+            // and the player can edit it before they begin.
+            startingCurrency = dto.startingCurrency.coerceIn(0, MAX_STARTING_CURRENCY),
+            startingCurrencyReason = dto.startingCurrencyReason.trim(),
+            startingPossessions = dto.startingPossessions.map { it.trim() }.filter { it.isNotBlank() }.take(5),
+            usage = response.usage,
+            modelId = response.modelId,
+        )
     }
 
     private fun buildContext(request: OpeningGenerationRequest) = buildString {
@@ -119,6 +128,9 @@ class OpeningGenerator(
     companion object {
         const val MAX_OPENINGS = 6
 
+        /** A ceiling on a generated purse, so one stray zero cannot trivialise a campaign. */
+        const val MAX_STARTING_CURRENCY = 100_000
+
         val SYSTEM_PROMPT = """
 You propose the ways one specific character's story could begin in one specific place.
 
@@ -130,6 +142,10 @@ Each opening is a moment, not a mission. It puts the character somewhere with so
 nearby and stops. Never state what the character thinks, feels, intends or decides, and never give
 them a goal they did not bring with them. No opening may open with the character being handed a
 quest by a stranger.
+
+Also judge what this character has on them right now: how much money, and which specific objects.
+Read it off who they are and what they have been doing, not off a table. A dock hand three days
+from payday and a merchant's heir carry very different amounts, and either may carry none.
 
 Return only the structured object.
 """.trim()
@@ -154,10 +170,23 @@ data class OpeningGenerationRequest(
 
 data class OpeningOption(val title: String, val situation: String, val pressure: String)
 
-data class OpeningGenerationResult(val openings: List<OpeningOption>, val usage: AIUsage, val modelId: String)
+data class OpeningGenerationResult(
+    val openings: List<OpeningOption>,
+    /** What this character plausibly has on them, judged from who they are — not a fixed default. */
+    val startingCurrency: Int,
+    val startingCurrencyReason: String,
+    val startingPossessions: List<String>,
+    val usage: AIUsage,
+    val modelId: String,
+)
 
 @Serializable
-internal data class GeneratedOpeningsDto(val openings: List<GeneratedOpeningDto> = emptyList())
+internal data class GeneratedOpeningsDto(
+    val openings: List<GeneratedOpeningDto> = emptyList(),
+    @SerialName("starting_currency") val startingCurrency: Int = 0,
+    @SerialName("starting_currency_reason") val startingCurrencyReason: String = "",
+    @SerialName("starting_possessions") val startingPossessions: List<String> = emptyList(),
+)
 
 @Serializable
 internal data class GeneratedOpeningDto(

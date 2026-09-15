@@ -159,10 +159,15 @@ class GameCreatorTest {
         behaviour.rawResponder = { "not json either" }
 
         val (states, onProgress) = record()
-        val openings = creator.generateOpenings(seed, spec, onProgress)
+        val suggestions = creator.generateOpenings(seed, spec, onProgress)
 
-        assertTrue("The authored hooks must stand in", openings.isNotEmpty())
-        assertTrue(openings.all { it.situation.isNotBlank() })
+        assertTrue("The authored hooks must stand in", suggestions.openings.isNotEmpty())
+        assertTrue(suggestions.openings.all { it.situation.isNotBlank() })
+        assertEquals(
+            "A failed call must not invent a purse; the player decides instead",
+            null,
+            suggestions.startingCurrency,
+        )
         assertEquals("The player must never be stranded on a busy step", CreationState.Idle, states.last())
     }
 
@@ -173,13 +178,58 @@ class GameCreatorTest {
             {"openings":[
               {"title":"The tab comes due","situation":"Mara sets the book on the bar and taps it.","pressure":"Tonight.","involves":[]},
               {"title":"A sealed letter","situation":"It has your name on it and no sender.","pressure":"The seal is Combine.","involves":[]}
-            ]}
+            ],
+             "starting_currency":42,
+             "starting_currency_reason":"what is left of a bad week",
+             "starting_possessions":["a short gutting knife","a ring of keys that fit nothing he owns"]}
             """.trimIndent()
         }
 
-        val openings = creator.generateOpenings(seed, spec) { }
-        assertEquals(2, openings.size)
-        assertEquals("The tab comes due", openings.first().title)
-        assertTrue(openings.first().pressure.isNotBlank())
+        val suggestions = creator.generateOpenings(seed, spec) { }
+        assertEquals(2, suggestions.openings.size)
+        assertEquals("The tab comes due", suggestions.openings.first().title)
+        assertTrue(suggestions.openings.first().pressure.isNotBlank())
+    }
+
+    @Test
+    fun `the starting purse is judged per character rather than defaulted`() = runTest {
+        behaviour.rawResponder = {
+            """
+            {"openings":[{"title":"A","situation":"Something happens.","pressure":"","involves":[]}],
+             "starting_currency":3,
+             "starting_currency_reason":"everything they have",
+             "starting_possessions":["a length of iron chain wrapped at the wrist"]}
+            """.trimIndent()
+        }
+
+        val suggestions = creator.generateOpenings(seed, spec) { }
+        assertEquals(3, suggestions.startingCurrency)
+        assertEquals("everything they have", suggestions.startingCurrencyReason)
+        assertEquals(listOf("a length of iron chain wrapped at the wrist"), suggestions.startingPossessions)
+    }
+
+    @Test
+    fun `starting possessions become real items the player owns`() = runTest {
+        val (_, onProgress) = record()
+        val outcome = creator.create(
+            seed,
+            spec.copy(startingCurrency = 7, startingPossessions = listOf("a short gutting knife", "a sealed letter")),
+            opening = null,
+            onProgress = onProgress,
+        ) as CreationOutcome.Created
+
+        assertEquals(7L, store.getPlayer(outcome.game.id)!!.currency)
+
+        val carried = store.itemsOwnedBy(outcome.game.id, com.unbound.core.model.Ids.PLAYER)
+        assertEquals(2, carried.size)
+        assertTrue(carried.any { it.name == "a short gutting knife" })
+        assertTrue("They must be real entities, not prose", carried.all { it.id.startsWith("item_") })
+    }
+
+    @Test
+    fun `no purse is decided means the character starts with nothing rather than a magic number`() = runTest {
+        val (_, onProgress) = record()
+        val outcome = creator.create(seed, spec, opening = null, onProgress = onProgress) as CreationOutcome.Created
+        assertEquals(0L, store.getPlayer(outcome.game.id)!!.currency)
     }
 }

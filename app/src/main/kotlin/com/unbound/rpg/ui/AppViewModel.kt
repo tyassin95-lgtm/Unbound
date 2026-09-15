@@ -3,7 +3,6 @@ package com.unbound.rpg.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.unbound.core.ai.CostEstimator
-import com.unbound.core.content.OpeningOption
 import com.unbound.core.content.SeedWorld
 import com.unbound.core.engine.NewGameRequest
 import com.unbound.core.model.Appearance
@@ -16,6 +15,7 @@ import com.unbound.rpg.domain.AppContainer
 import com.unbound.rpg.domain.CreationOutcome
 import com.unbound.rpg.domain.CreationSpec
 import com.unbound.rpg.domain.GameCreator
+import com.unbound.rpg.domain.OpeningSuggestions
 import com.unbound.rpg.ui.saves.SaveSummary
 import com.unbound.rpg.ui.settings.SettingsUiState
 import com.unbound.rpg.ui.setup.NewGameDraft
@@ -46,9 +46,9 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
     private val _customWorld = MutableStateFlow<SeedWorld?>(null)
     val customWorld: StateFlow<SeedWorld?> = _customWorld.asStateFlow()
 
-    /** Ways this character's story could begin here, generated for the chosen world. */
-    private val _openings = MutableStateFlow<List<OpeningOption>>(emptyList())
-    val openings: StateFlow<List<OpeningOption>> = _openings.asStateFlow()
+    /** Ways this character's story could begin here, plus what they have in their pockets. */
+    private val _openings = MutableStateFlow(OpeningSuggestions())
+    val openings: StateFlow<OpeningSuggestions> = _openings.asStateFlow()
 
     private val _createdGameId = MutableStateFlow<String?>(null)
     val createdGameId: StateFlow<String?> = _createdGameId.asStateFlow()
@@ -143,7 +143,19 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
     fun setTextModel(id: String) = viewModelScope.launch { container.settings.setTextModel(id) }
     fun setImageModel(id: String?) = viewModelScope.launch { container.settings.setImageModel(id) }
     fun setImageMode(mode: ImageMode) = viewModelScope.launch { container.settings.setImageMode(mode) }
-    fun setNarrationLength(length: NarrationLength) = viewModelScope.launch { container.settings.setNarrationLength(length) }
+    /**
+     * Narration length is a reading preference rather than a property of any one story, so it is
+     * applied to every existing campaign as well as to new ones — otherwise changing it in Settings
+     * would appear to do nothing to the game actually being played.
+     */
+    fun setNarrationLength(length: NarrationLength) = viewModelScope.launch {
+        container.settings.setNarrationLength(length)
+        container.store.listGames().forEach { game ->
+            if (game.narrationLength != length) {
+                container.store.upsertGame(game.copy(narrationLength = length))
+            }
+        }
+    }
     fun setSuggestions(enabled: Boolean) = viewModelScope.launch { container.settings.setSuggestedActions(enabled) }
     fun setReducedMotion(enabled: Boolean) = viewModelScope.launch { container.settings.setReducedMotion(enabled) }
     fun setDeveloperMode(enabled: Boolean) = viewModelScope.launch { container.settings.setDeveloperMode(enabled) }
@@ -173,7 +185,7 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
         val spec = specFor(draft) ?: return@launch
         if (draft.premise.isBlank()) return@launch
         _customWorld.value = null
-        _openings.value = emptyList()
+        _openings.value = OpeningSuggestions()
         creator.generateWorld(spec) { _creation.value = it }
             .onSuccess { _customWorld.value = it }
     }
@@ -207,7 +219,7 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
 
     fun clearGeneratedWorld() {
         _customWorld.value = null
-        _openings.value = emptyList()
+        _openings.value = OpeningSuggestions()
     }
 
     fun dismissCreationError() {
@@ -237,11 +249,15 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
             background = draft.background.trim(),
             goals = listOfNotNull(draft.goal.trim().takeIf { it.isNotBlank() }),
             secrets = listOfNotNull(draft.secret.trim().takeIf { it.isNotBlank() }),
-            startingCurrency = draft.template?.startingCurrency ?: 25,
+            // Whatever the player settled on, which is the generated suggestion unless they
+            // changed it. Never a fixed default.
+            startingCurrency = draft.currencyAmount,
+            startingPossessions = draft.startingPossessions,
             textModelId = model,
             imageModelId = settings.defaultImageModelId,
             imageMode = settings.imageMode,
             tone = draft.tone,
+            narrationLength = settings.narrationLength,
             limits = draft.limits.split(',').map { it.trim() }.filter { it.isNotBlank() }
                 .ifEmpty { settings.personalLimits },
             premise = draft.premise.trim(),

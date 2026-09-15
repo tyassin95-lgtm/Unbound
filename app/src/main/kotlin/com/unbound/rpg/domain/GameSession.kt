@@ -82,11 +82,19 @@ class GameSession(
                     turnNumber = outcome.turn.turnNumber,
                     diagnostics = outcome.diagnostics,
                     rejected = outcome.issues.map { "${it.code}: ${it.detail}" },
+                    playerDialogue = outcome.turn.playerDialogue,
                 )
             }
             is TurnOutcome.Replayed -> {
                 pendingIdempotencyKey = null
-                SessionResult.Narrated(outcome.turn.narrative, outcome.turn.suggestedActions, outcome.turn.turnNumber, null, emptyList())
+                SessionResult.Narrated(
+                    narrative = outcome.turn.narrative,
+                    suggestedActions = outcome.turn.suggestedActions,
+                    turnNumber = outcome.turn.turnNumber,
+                    diagnostics = null,
+                    rejected = emptyList(),
+                    playerDialogue = outcome.turn.playerDialogue,
+                )
             }
             is TurnOutcome.Failure -> {
                 // A retryable failure keeps the key so the retry is the *same* turn, not a new one.
@@ -158,6 +166,91 @@ class GameSession(
     }
 
     /**
+     * What can be pictured *right now*.
+     *
+     * Rebuilt from canonical state on every call rather than cached, because the answer changes
+     * with the turn: who walked in, where the player moved to, what just happened. The moment text
+     * comes from the last narrative, so a scene image depicts what was actually narrated instead of
+     * a generic view of the room.
+     */
+    suspend fun imageOptions(): ImageOptions {
+        val game = game() ?: return ImageOptions.unavailable("No game loaded.")
+        val player = player() ?: return ImageOptions.unavailable("No character.")
+        val location = location()
+        val present = presentNpcs()
+        val lastTurn = container.store.recentTurns(gameId, 1).firstOrNull()
+
+        val unavailable = when {
+            game.imageMode == ImageMode.DISABLED ->
+                "Pictures are switched off for this game. You can turn them on in Settings."
+            game.imageModelId == null ->
+                "No image model is selected. Choose one in Settings first."
+            else -> null
+        }
+
+        return ImageOptions(
+            unavailableReason = unavailable,
+            moment = lastTurn?.narrative.orEmpty().let { summariseMoment(it) },
+            locationName = location?.name ?: "here",
+            playerName = player.name,
+            present = present.map { PicturableNpc(it.id, it.name, it.occupation) },
+            turnNumber = game.turnNumber,
+        )
+    }
+
+    /**
+     * The image prompt gets the shape of the moment, not the whole page: a long narrative would
+     * both cost more and bury the thing actually happening.
+     */
+    private fun summariseMoment(narrative: String): String {
+        val cleaned = narrative
+            .replace("[[", "")
+            .replace("]]", "")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+        if (cleaned.length <= MOMENT_LIMIT) return cleaned
+        // Cut on a sentence boundary so the prompt never ends mid-clause.
+        val cut = cleaned.take(MOMENT_LIMIT)
+        val lastStop = cut.lastIndexOfAny(charArrayOf('.', '!', '?'))
+        return if (lastStop > MOMENT_LIMIT / 2) cut.take(lastStop + 1) else cut
+    }
+
+    suspend fun generateImage(kind: ImageRequestKind): SessionResult {
+        val game = game() ?: return SessionResult.Ignored
+        if (game.imageMode == ImageMode.DISABLED) {
+            return SessionResult.LocalAnswer("Pictures are switched off. You can enable them in Settings.")
+        }
+        val modelId = game.imageModelId
+            ?: return SessionResult.LocalAnswer("No image model is selected. Choose one in Settings first.")
+
+        val options = imageOptions()
+        val outcome = when (kind) {
+            is ImageRequestKind.Scene -> container.images.imageForScene(
+                gameId = gameId, modelId = modelId, moment = options.moment,
+            )
+            is ImageRequestKind.Place -> {
+                val locationId = player()?.currentLocationId
+                    ?: return SessionResult.LocalAnswer("Nowhere to draw.")
+                container.images.imageForLocation(gameId, locationId, modelId)
+            }
+            is ImageRequestKind.Person -> if (kind.npcId == null) {
+                container.images.imageForPlayer(gameId, modelId)
+            } else {
+                container.images.imageForNpc(gameId, kind.npcId, modelId)
+            }
+            is ImageRequestKind.Interaction -> container.images.imageForScene(
+                gameId = gameId, modelId = modelId, moment = options.moment,
+                npcIds = kind.npcIds, closeUp = true,
+            )
+        }
+
+        return when (outcome) {
+            is ImageOutcome.Ready -> SessionResult.ImageReady(outcome.record, outcome.fromCache)
+            is ImageOutcome.Failed -> SessionResult.LocalAnswer("The picture could not be made: ${outcome.reason}")
+        }
+    }
+
+    /**
      * Resolves "image of X" against canonical entities before generating anything, so the picture
      * is of the character the database knows rather than a fresh invention (§108).
      */
@@ -197,6 +290,8 @@ class GameSession(
     }
 
     private companion object {
+        const val MOMENT_LIMIT = 420
+
         val HELP_TEXT = """
             Type whatever you want to do, in your own words. You are not limited to any list.
 
@@ -212,6 +307,36 @@ class GameSession(
     }
 }
 
+/** What the player can ask to be drawn at this exact point in the story. */
+sealed interface ImageRequestKind {
+    data object Scene : ImageRequestKind
+    data object Place : ImageRequestKind
+
+    /** Null means the protagonist. */
+    data class Person(val npcId: String?) : ImageRequestKind
+    data class Interaction(val npcIds: List<String>) : ImageRequestKind
+}
+
+data class PicturableNpc(val id: String, val name: String, val occupation: String)
+
+data class ImageOptions(
+    val unavailableReason: String? = null,
+    val moment: String = "",
+    val locationName: String = "",
+    val playerName: String = "",
+    val present: List<PicturableNpc> = emptyList(),
+    val turnNumber: Int = 0,
+) {
+    val available: Boolean get() = unavailableReason == null
+
+    /** An interaction needs someone to interact with. */
+    val canDrawInteraction: Boolean get() = present.isNotEmpty()
+
+    companion object {
+        fun unavailable(reason: String) = ImageOptions(unavailableReason = reason)
+    }
+}
+
 sealed interface SessionResult {
     data object Ignored : SessionResult
     data object OpenJournal : SessionResult
@@ -223,6 +348,8 @@ sealed interface SessionResult {
         val turnNumber: Int,
         val diagnostics: TurnDiagnostics?,
         val rejected: List<String>,
+        /** Lines the protagonist spoke, so the renderer can colour their own words. */
+        val playerDialogue: List<String> = emptyList(),
     ) : SessionResult
     data class Failed(val message: String, val kind: AIErrorKind, val retryable: Boolean) : SessionResult
     data class Undone(val turnNumber: Int, val turnsUndone: Int) : SessionResult

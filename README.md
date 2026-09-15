@@ -49,6 +49,11 @@ Once the character and the world are both known, UNBOUND writes **five or six wa
 could begin** — specific to this person in this place, differing in kind rather than wording. Take
 one, write your own, or refuse all of them and start in the ordinary run of your life.
 
+The same call judges what your character plausibly has on them — money and objects — from who they
+are and what they do, rather than handing every protagonist the same purse. You see the amount and
+can change it before you begin, and the possessions become real items you can spend, give away or
+lose.
+
 ---
 
 ## Setup
@@ -179,6 +184,24 @@ turns only and never rewrites history.
 See [docs/OPENAI.md](docs/OPENAI.md).
 
 ---
+
+## Reading it
+
+Narration is styled from the story's own structure rather than by guessing at the prose:
+
+* **What you say** appears in the narration in your own colour. The model returns the
+  protagonist's spoken lines as a separate field as well as writing them into the prose, so the
+  renderer matches them exactly instead of parsing "you said" — attribution parsing gets it wrong
+  in precisely the cases that matter.
+* **What everyone else says** is distinguished more quietly.
+* **Texts, emails, calls, letters, broadcasts** — anything arriving from outside the room — are
+  italic and orange.
+
+Both conventions degrade harmlessly: if the model forgets one, the prose is simply shown unstyled.
+A property test asserts that no word of the story is ever lost to formatting, whatever the markup.
+
+Narration length is Brief (100-300 words), Normal (200-600) or Long (400-1200), and applies to
+every campaign.
 
 ## Cost
 

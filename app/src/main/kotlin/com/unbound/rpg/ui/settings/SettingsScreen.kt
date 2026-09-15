@@ -317,15 +317,27 @@ private fun GameplaySection(
 ) {
     SectionHeading("Gameplay")
     Text("Narration length", style = MaterialTheme.typography.titleSmall)
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        NarrationLength.entries.forEach { length ->
-            FilterChip(
+    Spacer(Modifier.height(8.dp))
+
+    // A segmented row rather than chips: three equal-weight segments always fit the width, where
+    // chips carrying their word ranges wrapped and left the last one half off-screen.
+    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+        NarrationLength.entries.forEachIndexed { index, length ->
+            SegmentedButton(
                 selected = state.settings.narrationLength == length,
                 onClick = { onNarrationLength(length) },
-                label = { Text("${length.display} (${length.minWords}–${length.maxWords})") },
+                shape = SegmentedButtonDefaults.itemShape(index, NarrationLength.entries.size),
+                label = { Text(length.display, maxLines = 1) },
             )
         }
     }
+    Text(
+        state.settings.narrationLength.range +
+            " per turn, typically. Major moments may run longer. Applies to all your games.",
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(top = 6.dp),
+    )
     ListItem(
         headlineContent = { Text("Suggested actions") },
         supportingContent = { Text("Hints after each turn. You can always type anything instead.") },

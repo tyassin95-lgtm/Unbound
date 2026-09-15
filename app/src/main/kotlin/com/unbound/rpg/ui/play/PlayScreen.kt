@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -49,12 +50,24 @@ fun PlayScreen(
     val state by viewModel.state.collectAsState()
     val listState = rememberLazyListState()
     var input by rememberSaveable { mutableStateOf("") }
+    var showImagePicker by rememberSaveable { mutableStateOf(false) }
     val keyboard = LocalSoftwareKeyboardController.current
 
     // Follow the newest entry, but only when new content actually arrives, so the player can scroll
     // back through their history without being yanked forward.
     LaunchedEffect(state.entries.size) {
         if (state.entries.isNotEmpty()) listState.animateScrollToItem(state.entries.lastIndex)
+    }
+
+    if (showImagePicker) {
+        ImagePickerSheet(
+            options = state.imageOptions,
+            onPick = { kind ->
+                showImagePicker = false
+                viewModel.requestImage(kind)
+            },
+            onDismiss = { showImagePicker = false },
+        )
     }
 
     Scaffold(
@@ -64,6 +77,12 @@ fun PlayScreen(
                 value = input,
                 onValueChange = { input = it },
                 enabled = !state.thinking,
+                imagesAvailable = state.imageOptions.available,
+                generatingImage = state.generatingImage,
+                onImageClick = {
+                    keyboard?.hide()
+                    showImagePicker = true
+                },
                 suggestions = state.suggestedActions,
                 onSuggestion = { suggestion ->
                     // A suggestion fills the box rather than submitting, so it remains a hint the
@@ -119,8 +138,24 @@ fun PlayScreen(
                 if (state.thinking) {
                     item(key = "thinking") { ThinkingIndicator() }
                 }
+                if (state.generatingImage) {
+                    item(key = "drawing") { DrawingIndicator() }
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun DrawingIndicator() {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+        Text(
+            "Drawing…",
+            style = MaterialTheme.typography.bodySmall,
+            fontStyle = FontStyle.Italic,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -219,16 +254,7 @@ private fun PlayerEcho(text: String) {
 @Composable
 private fun Narration(entry: SceneEntry.Narration, developerMode: Boolean) {
     Column(Modifier.fillMaxWidth()) {
-        // Paragraphs are split so each gets real spacing; a single Text with newlines reads as a
-        // wall on a phone.
-        entry.text.split("\n").filter { it.isNotBlank() }.forEach { paragraph ->
-            Text(
-                paragraph.trim(),
-                style = NarrativeStyle,
-                color = MaterialTheme.colorScheme.onBackground,
-                modifier = Modifier.padding(bottom = 10.dp),
-            )
-        }
+        NarrativeText(narrative = entry.text, playerDialogue = entry.playerDialogue)
         if (developerMode && entry.diagnostics != null) {
             DiagnosticsStrip(entry)
         }
@@ -332,6 +358,9 @@ private fun InputBar(
     value: String,
     onValueChange: (String) -> Unit,
     enabled: Boolean,
+    imagesAvailable: Boolean,
+    generatingImage: Boolean,
+    onImageClick: () -> Unit,
     suggestions: List<String>,
     onSuggestion: (String) -> Unit,
     onSend: () -> Unit,
@@ -359,6 +388,19 @@ private fun InputBar(
                 verticalAlignment = Alignment.Bottom,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                // Sits beside the input rather than in the app bar: asking for a picture is a
+                // thing you do about the moment you are in, so it belongs next to the moment.
+                FilledTonalIconButton(
+                    onClick = onImageClick,
+                    enabled = imagesAvailable && !generatingImage,
+                    modifier = Modifier.size(52.dp).semantics { contentDescription = "Draw something from this scene" },
+                ) {
+                    if (generatingImage) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                    } else {
+                        Icon(Icons.Default.AutoAwesome, contentDescription = null)
+                    }
+                }
                 OutlinedTextField(
                     value = value,
                     onValueChange = onValueChange,

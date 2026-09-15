@@ -88,6 +88,82 @@ class ImagePromptBuilder {
     }
 
     /**
+     * A moment rather than a subject: the place, the light, and whoever is standing in it.
+     *
+     * Consistency here works differently from a portrait. A group shot cannot be an edit of one
+     * canonical reference, so identity is carried by *text*: each character contributes the same
+     * identity clause used for their own portrait, verbatim. That is why [identityClause] is built
+     * from structured facts in a fixed order — it has to be reusable in three different prompts
+     * without drifting.
+     */
+    fun forScene(
+        location: LocationRecord,
+        world: WorldRecord,
+        time: WorldTime,
+        settingName: String,
+        present: List<CharacterLikeness>,
+        moment: String,
+        kind: ImageKind = ImageKind.SCENE,
+    ): ImagePrompt {
+        val cast = present.take(MAX_FIGURES)
+        val identity = buildString {
+            append(location.name).append(": ").append(location.description)
+            if (cast.isNotEmpty()) {
+                append(" Present: ")
+                append(cast.joinToString(" ") { "${it.name} — ${identityClause(it.age, it.gender, it.appearance)}" })
+            }
+        }
+        val prompt = buildString {
+            append(if (kind == ImageKind.EVENT) "Illustration of a moment. " else "Scene illustration. ")
+            append(identity)
+            append(" Setting: $settingName, ${world.era}, ${world.region}.")
+            append(" Conditions: ${world.weather}, ${time.partOfDay.name.lowercase().replace('_', ' ')}.")
+            if (location.condition != "intact") append(" The place is ${location.condition}.")
+            if (moment.isNotBlank()) append(" What is happening: ").append(moment.trim())
+            append(" Realistic proportions, natural light, no text or captions.")
+        }
+        return ImagePrompt(
+            prompt = prompt,
+            kind = kind,
+            identityClause = identity,
+            visualTraits = cast.flatMap { it.appearance.visualFacts() },
+            appearanceVersion = cast.sumOf { it.appearance.version },
+            // A moment is never a canonical reference: it depicts an event, not an identity.
+            isReferenceCreation = false,
+            cacheKey = cacheKey(
+                location.id + "|" + cast.joinToString(",") { it.id },
+                cast.sumOf { it.appearance.version },
+                moment.take(120),
+            ),
+        )
+    }
+
+    /** The people rather than the room: two or three figures, and what is passing between them. */
+    fun forInteraction(
+        location: LocationRecord,
+        world: WorldRecord,
+        time: WorldTime,
+        settingName: String,
+        participants: List<CharacterLikeness>,
+        moment: String,
+    ): ImagePrompt = forScene(
+        location = location,
+        world = world,
+        time = time,
+        settingName = settingName,
+        present = participants,
+        moment = moment,
+        kind = ImageKind.EVENT,
+    ).let { base ->
+        base.copy(
+            prompt = base.prompt.replace(
+                "Illustration of a moment. ",
+                "Close illustration of people, framed on their faces and hands. ",
+            ),
+        )
+    }
+
+    /**
      * The clause that must not drift. Age is stated explicitly and first, because the image model
      * needs it as much as the text model does.
      */
@@ -101,6 +177,28 @@ class ImagePromptBuilder {
 
     private fun cacheKey(subject: String, version: Int, variation: String?): String =
         listOf(subject, version.toString(), variation.orEmpty()).joinToString("|").hashCode().toString()
+
+    private companion object {
+        /** Beyond this, image models reliably lose faces; naming fewer people keeps them coherent. */
+        const val MAX_FIGURES = 4
+    }
+}
+
+/**
+ * Anything that can be drawn as a person. Lets the player and NPCs share one prompt path, which is
+ * what keeps their identity clauses identical across portrait, scene and interaction.
+ */
+data class CharacterLikeness(
+    val id: String,
+    val name: String,
+    val age: Int,
+    val gender: String,
+    val appearance: Appearance,
+) {
+    companion object {
+        fun of(npc: NpcRecord) = CharacterLikeness(npc.id, npc.name, npc.age, npc.gender, npc.appearance)
+        fun of(player: PlayerRecord) = CharacterLikeness(player.id, player.name, player.age, player.gender, player.appearance)
+    }
 }
 
 data class ImagePrompt(

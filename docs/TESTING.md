@@ -1,10 +1,10 @@
 # Testing
 
-103 tests, 0 failures. No test makes a network call or needs an API key.
+119 tests, 0 failures. No test makes a network call or needs an API key.
 
 ```bash
-./gradlew :core:test            # 79 tests — engine, pure JVM, ~2s
-./gradlew :app:testDebugUnitTest # 24 tests — Room on real SQLite, creation, security
+./gradlew :core:test            # 92 tests — engine, pure JVM, ~2s
+./gradlew :app:testDebugUnitTest # 27 tests — Room on real SQLite, creation, security
 ./gradlew test                   # everything
 ```
 
@@ -27,6 +27,7 @@
 | `JournalTest` | 2 | 0.3s | derived views, no knowledge leaks |
 | `KnowledgeScopeTest` | 2 | 0.0s | secrets and rumors |
 | `LongTermMemoryTest` | 1 | 0.2s | the §94 scenario across 120 turns |
+| `NarrativeFormatterTest` | 13 | 0.0s | speech and message styling; no text is ever lost |
 | `WorldSanitiserTest` | 11 | 0.0s | generated worlds treated as untrusted input |
 | `GameCreatorTest` | 7 | 0.1s | creation progress ordering, failure recovery |
 | `OpeningGeneratorTest` | 2 | 0.0s | opening parsing and tailoring |

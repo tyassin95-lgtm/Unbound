@@ -67,6 +67,22 @@ private val LightScheme = lightColorScheme(
 )
 
 /**
+ * Colours the narrative renderer uses for styled runs. Held here rather than inside the composable
+ * so light and dark stay in step, and so the mapping from [com.unbound.core.narrative.NarrativeStyleKind]
+ * to a colour is stated in exactly one place.
+ */
+object NarrativeColors {
+    /** What the protagonist said. Warm, and clearly the player's own voice. */
+    val playerSpeech: Color @Composable get() = if (isSystemInDarkTheme()) Brass else Color(0xFF7A5A12)
+
+    /** What everybody else said. Present but quieter than the player's own lines. */
+    val speech: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFFCFC0E8) else Color(0xFF4A3A70)
+
+    /** Texts, emails, calls, letters — anything arriving from outside the room. */
+    val communication: Color @Composable get() = if (isSystemInDarkTheme()) Color(0xFFE59A4E) else Color(0xFFB5610A)
+}
+
+/**
  * Narrative type is set larger and looser than Material's defaults, because the player reads
  * paragraphs of prose on a phone for an hour at a time rather than glancing at a list.
  */

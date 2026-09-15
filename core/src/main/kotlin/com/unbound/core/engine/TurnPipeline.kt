@@ -803,6 +803,7 @@ class TurnPipeline(
             completedAtEpochMs = now,
             worldMinutesAfter = newWorldTime.totalMinutes,
             suggestedActions = if (current.suggestedActionsEnabled) response.suggestedActions.take(5) else emptyList(),
+            playerDialogue = response.playerDialogue.filter { it.isNotBlank() }.take(12),
             errorMessage = null,
         )
         store.upsertTurn(completedTurn)

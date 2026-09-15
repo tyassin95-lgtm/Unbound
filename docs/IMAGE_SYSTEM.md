@@ -70,6 +70,31 @@ An image failure **never** fails the turn. The narrative was already committed b
 generation runs; a failure produces a note, records the failed usage row, and the request can be
 retried independently.
 
+## Asking for a picture
+
+The image button sits beside the input bar — asking for a picture is something you do *about the
+moment you are in*, so it belongs next to that moment rather than buried in a menu. It opens a
+sheet built from canonical state **on every turn**, so what it offers is what is actually true now:
+
+| Option | What it draws |
+|---|---|
+| This moment | The scene as narrated: this place, this light, everyone in it, doing what they are doing |
+| What is passing between you | Close on the faces and hands of the people present |
+| *(the location's name)* | The place itself, empty, as it stands right now |
+| A face | Your own portrait, or any character currently in the room |
+
+The "moment" text is the last narrative, trimmed to a sentence boundary — a whole page would cost
+more and bury the thing actually happening.
+
+Consistency works differently for a group shot than for a portrait. A scene cannot be an edit of
+one canonical reference, so identity is carried by **text**: every character contributes the same
+identity clause used for their own portrait, verbatim. That is why the clause is assembled from
+structured facts in a fixed order — it has to survive being reused in three different prompts
+without drifting. Scenes are never themselves canonical: they depict an event, not an identity.
+
+Only one picture is generated at a time, and the button disables itself while a request is in
+flight rather than queueing, because each one is a separate charge.
+
 ## Resolution
 
 `image of Mara` resolves against canonical entities *before* generating anything — the picture is of

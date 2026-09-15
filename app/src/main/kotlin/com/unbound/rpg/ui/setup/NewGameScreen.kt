@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -20,6 +21,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -36,6 +38,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.unbound.core.content.Characters
 import com.unbound.core.content.OpeningOption
+import com.unbound.rpg.domain.OpeningSuggestions
 import com.unbound.core.content.SeedWorld
 import com.unbound.core.content.Settings
 import com.unbound.core.model.CharacterTemplate
@@ -67,6 +70,13 @@ data class NewGameDraft(
     val hook: String? = null,
     /** An opening the player wrote instead of choosing one. */
     val customOpening: String = "",
+    /**
+     * Blank until something decides it: a chosen template's authored value, or the amount the
+     * opening generator judged for this character in this world. Never a fixed default.
+     */
+    val startingCurrency: String = "",
+    val startingCurrencyReason: String = "",
+    val startingPossessions: List<String> = emptyList(),
     val tone: Tone? = null,
     val limits: String = "",
 ) {
@@ -77,6 +87,8 @@ data class NewGameDraft(
     /** What the opening scene is actually built from. Null means "just drop me in". */
     fun chosenOpening(): String? =
         customOpening.trim().takeIf { it.isNotBlank() } ?: hook?.takeIf { it.isNotBlank() }
+
+    val currencyAmount: Long? get() = startingCurrency.trim().takeIf { it.isNotBlank() }?.toLongOrNull()
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -86,7 +98,7 @@ fun NewGameScreen(
     onCancel: () -> Unit,
     creation: CreationState,
     customWorld: SeedWorld?,
-    openings: List<OpeningOption>,
+    suggestions: OpeningSuggestions,
     onGenerateWorld: (NewGameDraft) -> Unit,
     onGenerateOpenings: (NewGameDraft) -> Unit,
     onClearGeneratedWorld: () -> Unit,
@@ -94,6 +106,20 @@ fun NewGameScreen(
 ) {
     var step by rememberSaveable { mutableStateOf(NewGameStep.CHARACTER) }
     var draft by remember { mutableStateOf(NewGameDraft()) }
+
+    // Adopt the generated purse and possessions, but never overwrite a number the player typed.
+    LaunchedEffect(suggestions) {
+        val suggested = suggestions.startingCurrency
+        if (suggested != null && draft.startingCurrency.isBlank()) {
+            draft = draft.copy(
+                startingCurrency = suggested.toString(),
+                startingCurrencyReason = suggestions.startingCurrencyReason,
+            )
+        }
+        if (suggestions.startingPossessions.isNotEmpty() && draft.startingPossessions.isEmpty()) {
+            draft = draft.copy(startingPossessions = suggestions.startingPossessions)
+        }
+    }
 
     // When a world finishes generating, adopt it and move on. Doing this here rather than in the
     // callback keeps the generation asynchronous without the screen having to poll.
@@ -186,7 +212,7 @@ fun NewGameScreen(
                     NewGameStep.OPENING -> OpeningPicker(
                         draft = draft,
                         onChange = { draft = it },
-                        openings = openings,
+                        openings = suggestions.openings,
                         loadingOpenings = (creation as? CreationState.Working)?.stage == CreationStage.FINDING_OPENINGS,
                         busy = creation.busy,
                         onRegenerate = { onGenerateOpenings(draft) },
@@ -302,6 +328,9 @@ private fun NewGameDraft.fromTemplate(t: CharacterTemplate) = copy(
     background = t.background,
     goal = t.goals.firstOrNull().orEmpty(),
     secret = t.secrets.firstOrNull().orEmpty(),
+    // An authored character comes with an authored purse; it is still editable below.
+    startingCurrency = t.startingCurrency.toString(),
+    startingCurrencyReason = "what ${t.name} is written as having",
 )
 
 @Composable
@@ -728,6 +757,50 @@ private fun OpeningPicker(
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(14.dp),
             )
+        }
+
+        SectionHeading("What you have on you")
+        if (draft.startingCurrencyReason.isNotBlank()) {
+            Text(
+                draft.startingCurrencyReason.replaceFirstChar { it.uppercase() } + ".",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(8.dp))
+        }
+        OutlinedTextField(
+            value = draft.startingCurrency,
+            onValueChange = { onChange(draft.copy(startingCurrency = it.filter { c -> c.isDigit() }.take(7))) },
+            label = { Text(seed.currencyName.replaceFirstChar { it.uppercase() }) },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            supportingText = {
+                Text(
+                    if (draft.startingCurrency.isBlank()) {
+                        "Judged from who you are and what you do. Change it if it does not fit."
+                    } else {
+                        "Change it if it does not fit your idea of this character."
+                    },
+                )
+            },
+        )
+        if (draft.startingPossessions.isNotEmpty()) {
+            Spacer(Modifier.height(10.dp))
+            Text("Carrying", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(6.dp))
+            // Tapping removes it, which is the only edit worth having here — anything the player
+            // wants to add, they can pick up in the story.
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                draft.startingPossessions.forEach { item ->
+                    InputChip(
+                        selected = true,
+                        onClick = { onChange(draft.copy(startingPossessions = draft.startingPossessions - item)) },
+                        label = { Text(item) },
+                        trailingIcon = { Icon(Icons.Default.Close, contentDescription = "Remove $item", Modifier.size(16.dp)) },
+                    )
+                }
+            }
         }
 
         SectionHeading("Tone")

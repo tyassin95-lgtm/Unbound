@@ -5,6 +5,7 @@ import com.unbound.core.ai.AIException
 import com.unbound.core.ai.AIImageProvider
 import com.unbound.core.ai.AIImageRequest
 import com.unbound.core.engine.WorldStore
+import com.unbound.core.images.CharacterLikeness
 import com.unbound.core.images.ImagePrompt
 import com.unbound.core.images.ImagePromptBuilder
 import com.unbound.core.model.*
@@ -58,6 +59,55 @@ class ImageService(
         val existing = store.canonicalImageFor(gameId, locationId)
         val prompt = promptBuilder.forLocation(location, world, game.worldTime, game.settingName, isFirstImage = existing == null)
         return generate(gameId, locationId, ImageKind.LOCATION, prompt, modelId, existing, 1)
+    }
+
+    /**
+     * The current moment: this place, this light, these people, doing this.
+     *
+     * A scene is never a canonical reference — it depicts an event, not an identity — so it is
+     * always generated fresh rather than edited from a stored portrait, and identity is carried by
+     * each character's own identity clause instead.
+     */
+    suspend fun imageForScene(
+        gameId: String,
+        modelId: String,
+        moment: String,
+        includePlayer: Boolean = true,
+        npcIds: List<String> = emptyList(),
+        closeUp: Boolean = false,
+    ): ImageOutcome {
+        val game = store.getGame(gameId) ?: return ImageOutcome.Failed("No such game.")
+        val player = store.getPlayer(gameId) ?: return ImageOutcome.Failed("No character.")
+        val world = store.getWorld(gameId) ?: return ImageOutcome.Failed("World data missing.")
+        val location = store.getLocation(gameId, player.currentLocationId)
+            ?: return ImageOutcome.Failed("Nowhere to draw.")
+
+        val npcs = if (npcIds.isEmpty()) {
+            store.npcsAt(gameId, location.id).filter { it.alive }
+        } else {
+            store.npcsByIds(gameId, npcIds).filter { it.alive }
+        }
+
+        val cast = buildList {
+            if (includePlayer) add(CharacterLikeness.of(player))
+            addAll(npcs.map { CharacterLikeness.of(it) })
+        }
+
+        val prompt = if (closeUp) {
+            promptBuilder.forInteraction(location, world, game.worldTime, game.settingName, cast, moment)
+        } else {
+            promptBuilder.forScene(location, world, game.worldTime, game.settingName, cast, moment)
+        }
+
+        return generate(
+            gameId = gameId,
+            entityId = SCENE_ENTITY_PREFIX + prompt.cacheKey,
+            kind = prompt.kind,
+            prompt = prompt,
+            modelId = modelId,
+            canonical = null,
+            appearanceVersion = prompt.appearanceVersion,
+        )
     }
 
     private suspend fun generate(
@@ -137,6 +187,8 @@ class ImageService(
 
     fun cacheSizeBytes(): Long = cacheDir.listFiles()?.sumOf { it.length() } ?: 0L
 }
+
+private const val SCENE_ENTITY_PREFIX = "scene_"
 
 sealed interface ImageOutcome {
     data class Ready(val record: ImageRecord, val fromCache: Boolean) : ImageOutcome

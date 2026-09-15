@@ -138,6 +138,7 @@ class GameFactory(
             currentLocationId = startLocationId,
             worldTime = WorldTime.DEFAULT,
             tone = request.tone ?: seed.toneHint,
+            narrationLength = request.narrationLength,
             limits = request.limits,
             textModelId = request.textModelId,
             imageModelId = request.imageModelId,
@@ -190,6 +191,24 @@ class GameFactory(
             )
         }
 
+        // Possessions are real entities from the first turn, so they can be given away, stolen,
+        // broken and tracked like anything else rather than existing only as prose.
+        val startingItems = request.startingPossessions
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinctBy { it.lowercase() }
+            .take(8)
+            .map { name ->
+                ItemRecord(
+                    id = Ids.item(idFactory()),
+                    gameId = gameId,
+                    name = name,
+                    description = "Carried since before the story began.",
+                    ownerId = Ids.PLAYER,
+                    provenance = listOf("brought into the story by ${request.name}"),
+                )
+            }
+
         val openingEvent = GameEvent(
             id = Ids.event(idFactory()),
             gameId = gameId,
@@ -211,6 +230,7 @@ class GameFactory(
         store.upsertLocations(locations)
         store.upsertFactions(factions)
         store.upsertNpcs(npcs)
+        if (startingItems.isNotEmpty()) store.upsertItems(startingItems)
         store.upsertThreads(threads)
         store.upsertKnowledge(knowledge)
         store.upsertRelationships(relationships)
@@ -264,12 +284,16 @@ data class NewGameRequest(
     val background: String = "",
     val goals: List<String> = emptyList(),
     val secrets: List<String> = emptyList(),
-    val startingCurrency: Long = 20,
+    /** Zero unless something decided otherwise. There is no default "starting money" in UNBOUND. */
+    val startingCurrency: Long = 0,
     val textModelId: String,
     val imageModelId: String? = null,
     val imageMode: ImageMode = ImageMode.ON_DEMAND,
     val tone: Tone? = null,
+    val narrationLength: NarrationLength = NarrationLength.NORMAL,
     val limits: List<String> = emptyList(),
+    /** Things the character begins with, beyond money. Named items become real entities. */
+    val startingPossessions: List<String> = emptyList(),
 ) {
     init {
         require(age >= 18) { "The protagonist must be an adult." }

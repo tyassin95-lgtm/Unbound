@@ -15,6 +15,7 @@ import com.unbound.core.engine.WorldStore
 import com.unbound.core.model.Appearance
 import com.unbound.core.model.GameRecord
 import com.unbound.core.model.ImageMode
+import com.unbound.core.model.NarrationLength
 import com.unbound.core.model.RequestType
 import com.unbound.core.model.Tone
 import com.unbound.core.model.UsageRecord
@@ -73,7 +74,7 @@ class GameCreator(
         seed: SeedWorld,
         spec: CreationSpec,
         onProgress: (CreationState) -> Unit,
-    ): List<OpeningOption> {
+    ): OpeningSuggestions {
         onProgress(CreationState.Working(CreationStage.FINDING_OPENINGS))
         val result = runCatching {
             openingGenerator.generate(
@@ -99,11 +100,19 @@ class GameCreator(
         val generated = result.getOrNull()
         if (generated == null) {
             // Authored worlds carry static hooks; a generated world may have none, and starting
-            // with no offered opening is a legitimate outcome rather than an error.
-            return seed.openingHooks.map { hook -> OpeningOption(hook.take(48), hook, "") }
+            // with no offered opening is a legitimate outcome rather than an error. The purse is
+            // left unset so the player decides rather than inheriting an arbitrary number.
+            return OpeningSuggestions(
+                openings = seed.openingHooks.map { hook -> OpeningOption(hook.take(48), hook, "") },
+            )
         }
         record(RequestType.WORLD_GENERATION, generated.modelId, generated.usage)
-        return generated.openings
+        return OpeningSuggestions(
+            openings = generated.openings,
+            startingCurrency = generated.startingCurrency,
+            startingCurrencyReason = generated.startingCurrencyReason,
+            startingPossessions = generated.startingPossessions,
+        )
     }
 
     suspend fun create(
@@ -130,7 +139,9 @@ class GameCreator(
                     background = spec.background,
                     goals = spec.goals,
                     secrets = spec.secrets,
-                    startingCurrency = spec.startingCurrency,
+                    startingCurrency = spec.startingCurrency ?: 0,
+                    startingPossessions = spec.startingPossessions,
+                    narrationLength = spec.narrationLength,
                     textModelId = spec.textModelId,
                     imageModelId = spec.imageModelId,
                     imageMode = spec.imageMode,
@@ -195,13 +206,31 @@ data class CreationSpec(
     val background: String = "",
     val goals: List<String> = emptyList(),
     val secrets: List<String> = emptyList(),
-    val startingCurrency: Long = 25,
+    /**
+     * Null means "nobody has decided yet" — the opening generator judges an amount that fits this
+     * character in this world, rather than every protagonist starting with the same purse.
+     */
+    val startingCurrency: Long? = null,
+    val startingPossessions: List<String> = emptyList(),
     val textModelId: String,
     val imageModelId: String? = null,
     val imageMode: ImageMode = ImageMode.ON_DEMAND,
     val tone: Tone? = null,
+    val narrationLength: NarrationLength = NarrationLength.NORMAL,
     val limits: List<String> = emptyList(),
     val premise: String = "",
+)
+
+/**
+ * What the opening call produced: the ways in, and what this particular character plausibly has in
+ * their pockets. The purse is a *suggestion* — the player sees it and can change it before
+ * beginning.
+ */
+data class OpeningSuggestions(
+    val openings: List<OpeningOption> = emptyList(),
+    val startingCurrency: Int? = null,
+    val startingCurrencyReason: String = "",
+    val startingPossessions: List<String> = emptyList(),
 )
 
 sealed interface CreationOutcome {

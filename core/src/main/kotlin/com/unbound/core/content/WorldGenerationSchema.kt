@@ -52,11 +52,27 @@ internal object WorldGenerationSchema {
     )
 
     fun openingsSchema(): JsonObject = obj(
-        listOf("openings"),
+        listOf("openings", "starting_currency", "starting_currency_reason", "starting_possessions"),
         buildJsonObject {
             put(
                 "openings",
                 arr(openingSchema(), "5 to 6 genuinely different ways this character's story could begin here."),
+            )
+            put(
+                "starting_currency",
+                int(
+                    "How much money this specific character plausibly has on them right now, in this " +
+                        "world's currency. Judge it from who they are and what they do — a destitute " +
+                        "runaway and a disgraced noble do not carry the same amount. It may be zero.",
+                ),
+            )
+            put("starting_currency_reason", str("One short clause explaining the amount, e.g. 'what is left of last week's pay'."))
+            put(
+                "starting_possessions",
+                strArray(
+                    "0 to 5 specific things this character has on them. Concrete objects, named as a " +
+                        "person would name them. No generic adventuring kit.",
+                ),
             )
         },
     )

@@ -121,6 +121,30 @@ Respect the player's stated limits exactly as written. They are not suggestions.
 Keep the fiction fictional: never produce real-world actionable instructions for serious harm.
 """.trim()
 
+    /**
+     * Two inline conventions the renderer styles. Both degrade harmlessly: if the model forgets
+     * them the prose is simply shown unstyled, so nothing is lost but colour.
+     */
+    val TEXT_FORMATTING = """
+DIALOGUE AND MESSAGES
+
+When the player's input has them speak, put their actual words into the prose in double quotes
+rather than summarising them. If they typed the words, use those words; if they described what they
+say, write the line they would say. Then repeat each of the protagonist's spoken lines, without the
+quotation marks, in player_dialogue — exactly as it appears in the narrative, character for
+character, so the two can be matched.
+
+Wrap anything that arrives remotely rather than in the room in double square brackets: text
+messages, emails, letters read out, phone and radio calls, intercom, public address, notes passed
+to the player, and anything read off a screen.
+
+    Your phone buzzes. [[Mara: don't come to the Kettle tonight.]]
+    [[The line crackles. "Two hours," he says. "Then I stop waiting."]]
+
+Use the brackets around the message content itself, including its speaker label if it has one. Do
+not use them for ordinary speech from someone physically present.
+""".trim()
+
     val OUTPUT_RULES = """
 OUTPUT
 Respond with the structured object only. narrative is the prose shown to the player. Keep it within
@@ -138,6 +162,7 @@ action — they are hints, never the only legal moves, and the player may type a
         MEMORY_RULES,
         STATE_CHANGE_RULES,
         NARRATION_STYLE,
+        TEXT_FORMATTING,
         CONTENT_RULES,
         OUTPUT_RULES,
     ).joinToString("\n\n---\n\n")

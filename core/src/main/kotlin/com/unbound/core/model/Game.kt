@@ -23,9 +23,11 @@ enum class Tone(val display: String, val guidance: String) {
 }
 
 enum class NarrationLength(val display: String, val minWords: Int, val maxWords: Int) {
-    BRIEF("Brief", 90, 180),
-    NORMAL("Normal", 150, 400),
-    LONG("Long", 300, 650);
+    BRIEF("Brief", 100, 300),
+    NORMAL("Normal", 200, 600),
+    LONG("Long", 400, 1200);
+
+    val range: String get() = "$minWords-$maxWords words"
 }
 
 enum class ImageMode(val display: String) {
