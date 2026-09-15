@@ -1,0 +1,30 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!--
+      Single-colour variant of the broken-link mark, for themed launcher icons.
+      Drawn in white; the launcher applies its own tint, so none is set here.
+    -->
+    <path
+        android:pathData="M42,36 m0,-10 a10,10 0 1,0 0.1,0 z"
+        android:strokeWidth="6"
+        android:strokeColor="#FFFFFF"
+        android:fillColor="#00000000" />
+    <path
+        android:pathData="M66,72 m0,-10 a10,10 0 1,0 0.1,0 z"
+        android:strokeWidth="6"
+        android:strokeColor="#FFFFFF"
+        android:fillColor="#00000000" />
+    <path
+        android:pathData="M48,44 L54,50"
+        android:strokeWidth="6"
+        android:strokeLineCap="round"
+        android:strokeColor="#FFFFFF" />
+    <path
+        android:pathData="M60,58 L66,64"
+        android:strokeWidth="6"
+        android:strokeLineCap="round"
+        android:strokeColor="#FFFFFF" />
+</vector>

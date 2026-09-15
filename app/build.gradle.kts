@@ -57,6 +57,7 @@ android {
 
     testOptions {
         unitTests.isReturnDefaultValues = true
+        unitTests.isIncludeAndroidResources = true
     }
 
     applicationVariants.all {
@@ -106,4 +107,10 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.coroutines.test)
+    // Robolectric lets the Room implementation be tested against a real SQLite database on the
+    // JVM, which matters here because no emulator is available in this environment.
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core)
+    testImplementation(libs.room.testing)
+    testImplementation(project(":core"))
 }

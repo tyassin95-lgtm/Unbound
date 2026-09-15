@@ -18,7 +18,9 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.sp
+import com.unbound.rpg.R
 
 /**
  * First run (§5). States the BYOK arrangement plainly before asking for anything, because the
@@ -54,7 +56,7 @@ fun OnboardingScreen(
         )
         Spacer(Modifier.height(6.dp))
         Text(
-            "Living World AI RPG",
+            stringResource(R.string.app_subtitle),
             style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
