@@ -1,0 +1,185 @@
+package com.unbound.rpg
+
+import com.unbound.core.ai.AIErrorKind
+import com.unbound.core.content.OpeningGenerator
+import com.unbound.core.content.SeedWorld
+import com.unbound.core.content.Settings
+import com.unbound.core.content.WorldGenerator
+import com.unbound.core.engine.GameFactory
+import com.unbound.core.engine.TurnPipeline
+import com.unbound.core.model.RequestType
+import com.unbound.core.testing.InMemoryWorldStore
+import com.unbound.core.testing.MockAIProvider
+import com.unbound.core.testing.MockBehaviour
+import com.unbound.rpg.domain.CreationOutcome
+import com.unbound.rpg.domain.CreationSpec
+import com.unbound.rpg.domain.GameCreator
+import com.unbound.rpg.ui.CreationStage
+import com.unbound.rpg.ui.CreationState
+import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+/**
+ * Regression cover for a bug a player actually hit: the progress state went idle *before* the
+ * opening-scene request, so the Begin button re-enabled while the network call was still running
+ * and invited repeated taps.
+ *
+ * These tests pin the emitted sequence, which is the only way that ordering can be checked without
+ * a device.
+ */
+class GameCreatorTest {
+
+    private var idCounter = 0
+    private var clockMs = 1_700_000_000_000L
+    private val ids: () -> String = { "id" + (++idCounter) }
+    private val clock: () -> Long = { clockMs += 1000; clockMs }
+
+    private val store = InMemoryWorldStore()
+    private val behaviour = MockBehaviour()
+    private val provider = MockAIProvider(behaviour)
+
+    private val creator = GameCreator(
+        store = store,
+        gameFactory = GameFactory(store, clock, ids),
+        pipeline = TurnPipeline(store, provider, clock, ids),
+        worldGenerator = WorldGenerator(provider),
+        openingGenerator = OpeningGenerator(provider),
+        clock = clock,
+        idFactory = ids,
+    )
+
+    private val spec = CreationSpec(
+        name = "Rook Vance", age = 31, gender = "man",
+        appearance = "Lean, weather-worn.", personality = "Wary.",
+        textModelId = "mock-story", premise = "A foundry city under permanent smoke.",
+    )
+
+    private val seed: SeedWorld = Settings.byId("ashmarket")!!
+
+    private fun record(): Pair<MutableList<CreationState>, (CreationState) -> Unit> {
+        val states = mutableListOf<CreationState>()
+        return states to { state: CreationState -> states += state }
+    }
+
+    @Test
+    fun `progress stays busy across every network call, including the opening scene`() = runTest {
+        val (states, onProgress) = record()
+
+        val outcome = creator.create(seed, spec, opening = null, onProgress = onProgress)
+        assertTrue(outcome is CreationOutcome.Created)
+
+        val stages = states.mapNotNull { (it as? CreationState.Working)?.stage }
+        assertEquals(
+            "Both the build and the opening scene must be covered, in order",
+            listOf(CreationStage.BUILDING_WORLD, CreationStage.OPENING_SCENE),
+            stages,
+        )
+
+        // The crux: nothing goes idle until the last call has returned.
+        val idleIndex = states.indexOfFirst { it is CreationState.Idle }
+        val openingIndex = states.indexOfFirst { (it as? CreationState.Working)?.stage == CreationStage.OPENING_SCENE }
+        assertTrue("The opening scene must be announced before anything goes idle", openingIndex in 0 until idleIndex)
+        assertEquals("Creation must finish idle", CreationState.Idle, states.last())
+        assertEquals("...exactly once", 1, states.count { it is CreationState.Idle })
+    }
+
+    @Test
+    fun `the opening scene is a real turn, so the world is playable immediately`() = runTest {
+        val (_, onProgress) = record()
+        val outcome = creator.create(seed, spec, opening = "You are three drinks into a tab you cannot pay.", onProgress) as CreationOutcome.Created
+
+        assertEquals(1, store.getGame(outcome.game.id)!!.turnNumber)
+        assertEquals(1, store.countTurns(outcome.game.id))
+        assertTrue(store.recentTurns(outcome.game.id, 1).single().narrative.isNotBlank())
+        assertEquals(null, outcome.openingWarning)
+    }
+
+    @Test
+    fun `a failed opening scene still yields a playable world rather than discarding it`() = runTest {
+        behaviour.failWith = AIErrorKind.TIMEOUT
+        behaviour.failuresRemaining = 1
+
+        val (states, onProgress) = record()
+        val outcome = creator.create(seed, spec, opening = null, onProgress)
+
+        assertTrue(outcome is CreationOutcome.Created)
+        outcome as CreationOutcome.Created
+        assertNotNull("The player should be told the first paragraph failed", outcome.openingWarning)
+        assertEquals("...but the world exists", 3, store.allNpcs(outcome.game.id).size)
+        assertNotNull(store.getPlayer(outcome.game.id))
+        assertEquals("Creation must still end idle, not stuck busy", CreationState.Idle, states.last())
+    }
+
+    @Test
+    fun `world generation reports progress and records its usage`() = runTest {
+        behaviour.rawResponder = {
+            """
+            {"name":"Cold Refuge","summary":"A monastery above the snowline.","start_location_key":"hall",
+             "locations":[{"key":"hall","name":"The Great Hall","description":"Cold stone.","type":"hall",
+                           "exits":[{"label":"through the arch","to":"cells"}]},
+                          {"key":"cells","name":"The Cells","description":"Six rooms.","type":"lodging","exits":[]}],
+             "npcs":[{"key":"auren","name":"Brother Auren","age":54,"location_key":"hall"}],
+             "factions":[],"threads":[]}
+            """.trimIndent()
+        }
+
+        val (states, onProgress) = record()
+        val result = creator.generateWorld(spec, onProgress)
+
+        assertTrue(result.isSuccess)
+        assertEquals("Cold Refuge", result.getOrThrow().name)
+        assertEquals(CreationStage.FORGING_WORLD, (states.first() as CreationState.Working).stage)
+        assertEquals(CreationState.Idle, states.last())
+
+        val usage = store.usageFor(null, 10)
+        assertTrue("Generation is a billable call and must be recorded", usage.any { it.requestType == RequestType.WORLD_GENERATION })
+    }
+
+    @Test
+    fun `a failed world generation reports a failure and keeps nothing`() = runTest {
+        behaviour.rawResponder = { "this is not a world" }
+
+        val (states, onProgress) = record()
+        val result = creator.generateWorld(spec, onProgress)
+
+        assertTrue(result.isFailure)
+        val failure = states.last()
+        assertTrue(failure is CreationState.Failed)
+        assertEquals(CreationStage.FORGING_WORLD, (failure as CreationState.Failed).stage)
+        assertFalse("A failed state is not a busy state", failure.busy)
+        assertTrue("No campaign may be left behind", store.listGames().isEmpty())
+    }
+
+    @Test
+    fun `failed opening generation falls back to the world's own hooks instead of blocking`() = runTest {
+        behaviour.rawResponder = { "not json either" }
+
+        val (states, onProgress) = record()
+        val openings = creator.generateOpenings(seed, spec, onProgress)
+
+        assertTrue("The authored hooks must stand in", openings.isNotEmpty())
+        assertTrue(openings.all { it.situation.isNotBlank() })
+        assertEquals("The player must never be stranded on a busy step", CreationState.Idle, states.last())
+    }
+
+    @Test
+    fun `generated openings are tailored and offered`() = runTest {
+        behaviour.rawResponder = {
+            """
+            {"openings":[
+              {"title":"The tab comes due","situation":"Mara sets the book on the bar and taps it.","pressure":"Tonight.","involves":[]},
+              {"title":"A sealed letter","situation":"It has your name on it and no sender.","pressure":"The seal is Combine.","involves":[]}
+            ]}
+            """.trimIndent()
+        }
+
+        val openings = creator.generateOpenings(seed, spec) { }
+        assertEquals(2, openings.size)
+        assertEquals("The tab comes due", openings.first().title)
+        assertTrue(openings.first().pressure.isNotBlank())
+    }
+}

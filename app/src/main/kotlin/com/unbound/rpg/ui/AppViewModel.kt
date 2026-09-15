@@ -3,13 +3,19 @@ package com.unbound.rpg.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.unbound.core.ai.CostEstimator
-import com.unbound.core.content.Settings as SettingContent
+import com.unbound.core.content.OpeningOption
+import com.unbound.core.content.SeedWorld
 import com.unbound.core.engine.NewGameRequest
 import com.unbound.core.model.Appearance
 import com.unbound.core.model.ImageMode
 import com.unbound.core.model.NarrationLength
+import com.unbound.core.model.RequestType
+import com.unbound.core.model.UsageRecord
 import com.unbound.rpg.data.security.SecureCredentialStore
 import com.unbound.rpg.domain.AppContainer
+import com.unbound.rpg.domain.CreationOutcome
+import com.unbound.rpg.domain.CreationSpec
+import com.unbound.rpg.domain.GameCreator
 import com.unbound.rpg.ui.saves.SaveSummary
 import com.unbound.rpg.ui.settings.SettingsUiState
 import com.unbound.rpg.ui.setup.NewGameDraft
@@ -33,8 +39,16 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
     private val _settings = MutableStateFlow(SettingsUiState())
     val settings: StateFlow<SettingsUiState> = _settings.asStateFlow()
 
-    private val _creating = MutableStateFlow(false)
-    val creating: StateFlow<Boolean> = _creating.asStateFlow()
+    private val _creation = MutableStateFlow<CreationState>(CreationState.Idle)
+    val creation: StateFlow<CreationState> = _creation.asStateFlow()
+
+    /** A world the player invented, once it has been generated. */
+    private val _customWorld = MutableStateFlow<SeedWorld?>(null)
+    val customWorld: StateFlow<SeedWorld?> = _customWorld.asStateFlow()
+
+    /** Ways this character's story could begin here, generated for the chosen world. */
+    private val _openings = MutableStateFlow<List<OpeningOption>>(emptyList())
+    val openings: StateFlow<List<OpeningOption>> = _openings.asStateFlow()
 
     private val _createdGameId = MutableStateFlow<String?>(null)
     val createdGameId: StateFlow<String?> = _createdGameId.asStateFlow()
@@ -141,50 +155,97 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     // --- games ---------------------------------------------------------------------------------
+
+    private val creator by lazy {
+        GameCreator(
+            store = container.store,
+            gameFactory = container.gameFactory,
+            pipeline = container.pipeline,
+            worldGenerator = container.worldGenerator,
+            openingGenerator = container.openingGenerator,
+            clock = container.clock,
+            idFactory = container.idFactory,
+        )
+    }
+
+    /** Builds a world from the player's own premise (§16). */
+    fun generateCustomWorld(draft: NewGameDraft) = viewModelScope.launch {
+        val spec = specFor(draft) ?: return@launch
+        if (draft.premise.isBlank()) return@launch
+        _customWorld.value = null
+        _openings.value = emptyList()
+        creator.generateWorld(spec) { _creation.value = it }
+            .onSuccess { _customWorld.value = it }
+    }
+
+    /**
+     * Openings are generated once the character *and* the world are both known, so they are
+     * specific to this person in this place rather than generic.
+     */
+    fun generateOpenings(draft: NewGameDraft) = viewModelScope.launch {
+        val seed = draft.seed ?: return@launch
+        val spec = specFor(draft) ?: return@launch
+        _openings.value = creator.generateOpenings(seed, spec) { _creation.value = it }
+    }
+
     fun createGame(draft: NewGameDraft) = viewModelScope.launch {
         val seed = draft.seed ?: return@launch
+        val spec = specFor(draft) ?: return@launch
+
+        when (val outcome = creator.create(seed, spec, draft.chosenOpening()) { _creation.value = it }) {
+            is CreationOutcome.Created -> {
+                refreshSaves()
+                refreshUsage()
+                outcome.openingWarning?.let { warning ->
+                    _settings.update { it.copy(modelError = warning) }
+                }
+                _createdGameId.value = outcome.game.id
+            }
+            is CreationOutcome.Failed -> Unit // the progress state already carries the failure
+        }
+    }
+
+    fun clearGeneratedWorld() {
+        _customWorld.value = null
+        _openings.value = emptyList()
+    }
+
+    fun dismissCreationError() {
+        _creation.value = CreationState.Idle
+    }
+
+    private fun specFor(draft: NewGameDraft): CreationSpec? {
         val settings = _settings.value.settings
         val model = settings.defaultTextModelId
         if (model == null) {
-            _settings.update { it.copy(modelError = "Choose a story model before starting a game.") }
-            return@launch
-        }
-        _creating.value = true
-        val game = runCatching {
-            container.gameFactory.createGame(
-                NewGameRequest(
-                    seed = seed,
-                    name = draft.name.trim(),
-                    age = draft.ageInt ?: 18,
-                    gender = draft.gender.trim(),
-                    appearance = Appearance(summary = draft.appearance.trim()),
-                    personality = draft.personality.trim(),
-                    desires = draft.desires.trim(),
-                    fears = draft.fears.trim(),
-                    skills = draft.skills.split(',').map { it.trim() }.filter { it.isNotBlank() },
-                    weaknesses = draft.weaknesses.split(',').map { it.trim() }.filter { it.isNotBlank() },
-                    background = draft.background.trim(),
-                    goals = listOfNotNull(draft.goal.trim().takeIf { it.isNotBlank() }),
-                    secrets = listOfNotNull(draft.secret.trim().takeIf { it.isNotBlank() }),
-                    startingCurrency = draft.template?.startingCurrency ?: 25,
-                    textModelId = model,
-                    imageModelId = settings.defaultImageModelId,
-                    imageMode = settings.imageMode,
-                    tone = draft.tone,
-                    limits = (draft.limits.split(',').map { it.trim() }.filter { it.isNotBlank() })
-                        .ifEmpty { settings.personalLimits },
-                ),
+            _creation.value = CreationState.Failed(
+                "Choose a story model in Settings before starting a game.",
+                CreationStage.BUILDING_WORLD,
             )
-        }.getOrNull()
-        _creating.value = false
-        if (game != null) {
-            // The opening scene is a normal turn, so it goes through the same validated pipeline
-            // as everything else rather than a special path.
-            val opening = container.gameFactory.openingInstruction(seed, draft.hook)
-            container.pipeline.execute(game.id, opening)
-            refreshSaves()
-            _createdGameId.value = game.id
+            return null
         }
+        return CreationSpec(
+            name = draft.name.trim(),
+            age = draft.ageInt ?: 18,
+            gender = draft.gender.trim(),
+            appearance = draft.appearance.trim(),
+            personality = draft.personality.trim(),
+            desires = draft.desires.trim(),
+            fears = draft.fears.trim(),
+            skills = draft.skills.split(',').map { it.trim() }.filter { it.isNotBlank() },
+            weaknesses = draft.weaknesses.split(',').map { it.trim() }.filter { it.isNotBlank() },
+            background = draft.background.trim(),
+            goals = listOfNotNull(draft.goal.trim().takeIf { it.isNotBlank() }),
+            secrets = listOfNotNull(draft.secret.trim().takeIf { it.isNotBlank() }),
+            startingCurrency = draft.template?.startingCurrency ?: 25,
+            textModelId = model,
+            imageModelId = settings.defaultImageModelId,
+            imageMode = settings.imageMode,
+            tone = draft.tone,
+            limits = draft.limits.split(',').map { it.trim() }.filter { it.isNotBlank() }
+                .ifEmpty { settings.personalLimits },
+            premise = draft.premise.trim(),
+        )
     }
 
     fun consumeCreatedGame() { _createdGameId.value = null }

@@ -32,6 +32,23 @@ Concretely, that means:
 * Returning after 120 turns, an NPC still remembers the theft, the apology, and the insult, and
   still does not know about the faction you joined across town.
 
+## Worlds
+
+Six authored settings ship with the app, each with its streets, people and quarrels already
+running before you arrive. **Or describe your own**, in a sentence or a page, and UNBOUND builds
+it: locations wired together, people with concrete faces and their own secrets, factions with
+conflicting aims, and situations already in motion that you did not cause.
+
+A generated world becomes an ordinary world. It goes through exactly the same door as the authored
+ones, so nothing downstream — memory, knowledge, simulation, saves — knows or cares which it was.
+Generated content is treated as untrusted: exits to places that were never defined are dropped,
+homeless characters are placed, and anyone the model forgot to give an age gets an explicit one
+rather than an inferred one.
+
+Once the character and the world are both known, UNBOUND writes **five or six ways your story
+could begin** — specific to this person in this place, differing in kind rather than wording. Take
+one, write your own, or refuse all of them and start in the ordinary run of your life.
+
 ---
 
 ## Setup

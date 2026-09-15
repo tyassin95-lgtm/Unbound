@@ -81,6 +81,26 @@ module, none of it could have been verified.
 The UI never touches the store or the pipeline. It talks to `GameSession`, which is also where
 local commands are resolved without a model call.
 
+## World creation
+
+```
+character → world → opening → play
+              │        │
+              │        └─ OpeningGenerator   one call, 5-6 tailored openings
+              └─ WorldGenerator              one call, only for a custom world
+```
+
+`GameCreator` (in `app/domain`) orchestrates the three stages and emits a `CreationState` at every
+step. It is a plain class rather than logic inside the ViewModel for a specific reason: the
+progress state must stay busy across *every* network call, and that ordering is only testable if
+the orchestration can be driven without Android.
+
+Both generators produce a `SeedWorld` — the same type the six authored settings are written in — so
+`GameFactory` cannot tell an invented world from an authored one, and neither can anything
+downstream of it. `WorldGenerator.sanitise` treats the model's answer as untrusted input on the
+same principle as the state validator: repair what can be repaired, drop what cannot, and fail
+loudly only when the result would be unplayable.
+
 ## The store contract
 
 `WorldStore` (in `core/engine`) defines every read and write the engine can perform. Two properties

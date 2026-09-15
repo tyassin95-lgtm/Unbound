@@ -101,12 +101,15 @@ fun UnboundApp(container: AppContainer) {
         }
 
         composable(Routes.NEW_GAME) {
-            val creating by appViewModel.creating.collectAsState()
+            val creation by appViewModel.creation.collectAsState()
             val created by appViewModel.createdGameId.collectAsState()
+            val customWorld by appViewModel.customWorld.collectAsState()
+            val openings by appViewModel.openings.collectAsState()
 
             LaunchedEffect(created) {
                 created?.let { gameId ->
                     appViewModel.consumeCreatedGame()
+                    appViewModel.clearGeneratedWorld()
                     navController.navigate(Routes.play(gameId)) {
                         popUpTo(Routes.NEW_GAME) { inclusive = true }
                     }
@@ -115,8 +118,17 @@ fun UnboundApp(container: AppContainer) {
 
             NewGameScreen(
                 onCreate = appViewModel::createGame,
-                onCancel = { navController.popBackStack() },
-                creating = creating,
+                onCancel = {
+                    appViewModel.clearGeneratedWorld()
+                    navController.popBackStack()
+                },
+                creation = creation,
+                customWorld = customWorld,
+                openings = openings,
+                onGenerateWorld = appViewModel::generateCustomWorld,
+                onGenerateOpenings = appViewModel::generateOpenings,
+                onClearGeneratedWorld = appViewModel::clearGeneratedWorld,
+                onDismissError = appViewModel::dismissCreationError,
             )
         }
 

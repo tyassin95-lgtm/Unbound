@@ -1,6 +1,13 @@
 package com.unbound.rpg.ui.setup
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -10,23 +17,35 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.unbound.core.content.Characters
+import com.unbound.core.content.OpeningOption
 import com.unbound.core.content.SeedWorld
 import com.unbound.core.content.Settings
 import com.unbound.core.model.CharacterTemplate
 import com.unbound.core.model.Tone
+import com.unbound.rpg.ui.CreationStage
+import com.unbound.rpg.ui.CreationState
 import com.unbound.rpg.ui.components.SectionHeading
 
 /** New Game, in the order §12 sets out: character, setting, opening, then the world is built. */
-enum class NewGameStep { CHARACTER, EDIT_CHARACTER, SETTING, OPENING }
+enum class NewGameStep { CHARACTER, EDIT_CHARACTER, SETTING, CUSTOM_WORLD, OPENING }
 
 data class NewGameDraft(
     val template: CharacterTemplate? = null,
@@ -43,13 +62,21 @@ data class NewGameDraft(
     val goal: String = "",
     val secret: String = "",
     val seed: SeedWorld? = null,
+    /** The player's own description, when they are inventing a world rather than picking one. */
+    val premise: String = "",
     val hook: String? = null,
+    /** An opening the player wrote instead of choosing one. */
+    val customOpening: String = "",
     val tone: Tone? = null,
     val limits: String = "",
 ) {
     val ageInt: Int? get() = age.toIntOrNull()
     val valid: Boolean
         get() = name.isNotBlank() && (ageInt ?: 0) >= 18 && appearance.isNotBlank() && seed != null
+
+    /** What the opening scene is actually built from. Null means "just drop me in". */
+    fun chosenOpening(): String? =
+        customOpening.trim().takeIf { it.isNotBlank() } ?: hook?.takeIf { it.isNotBlank() }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -57,70 +84,206 @@ data class NewGameDraft(
 fun NewGameScreen(
     onCreate: (NewGameDraft) -> Unit,
     onCancel: () -> Unit,
-    creating: Boolean,
+    creation: CreationState,
+    customWorld: SeedWorld?,
+    openings: List<OpeningOption>,
+    onGenerateWorld: (NewGameDraft) -> Unit,
+    onGenerateOpenings: (NewGameDraft) -> Unit,
+    onClearGeneratedWorld: () -> Unit,
+    onDismissError: () -> Unit,
 ) {
     var step by rememberSaveable { mutableStateOf(NewGameStep.CHARACTER) }
     var draft by remember { mutableStateOf(NewGameDraft()) }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        when (step) {
-                            NewGameStep.CHARACTER -> "Who are you?"
-                            NewGameStep.EDIT_CHARACTER -> "Your character"
-                            NewGameStep.SETTING -> "Where?"
-                            NewGameStep.OPENING -> "How does it start?"
+    // When a world finishes generating, adopt it and move on. Doing this here rather than in the
+    // callback keeps the generation asynchronous without the screen having to poll.
+    LaunchedEffect(customWorld) {
+        val generated = customWorld ?: return@LaunchedEffect
+        if (draft.seed?.id != generated.id) {
+            draft = draft.copy(seed = generated, tone = draft.tone ?: generated.toneHint)
+            step = NewGameStep.OPENING
+            onGenerateOpenings(draft)
+        }
+    }
+
+    fun back() {
+        when (step) {
+            NewGameStep.CHARACTER -> onCancel()
+            NewGameStep.EDIT_CHARACTER -> step = NewGameStep.CHARACTER
+            NewGameStep.SETTING -> step = NewGameStep.EDIT_CHARACTER
+            NewGameStep.CUSTOM_WORLD -> step = NewGameStep.SETTING
+            NewGameStep.OPENING -> {
+                // Going back from a generated world discards it, so the player is never left with
+                // openings that belong to a world they have navigated away from.
+                onClearGeneratedWorld()
+                draft = draft.copy(seed = null, hook = null, customOpening = "")
+                step = NewGameStep.SETTING
+            }
+        }
+    }
+
+    // A hardware back press during a network call would strand the request and confuse the flow.
+    BackHandler(enabled = !creation.busy) { back() }
+
+    Box {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = {
+                        Text(
+                            when (step) {
+                                NewGameStep.CHARACTER -> "Who are you?"
+                                NewGameStep.EDIT_CHARACTER -> "Your character"
+                                NewGameStep.SETTING -> "Where?"
+                                NewGameStep.CUSTOM_WORLD -> "Your own world"
+                                NewGameStep.OPENING -> "How does it start?"
+                            },
+                        )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = { back() }, enabled = !creation.busy) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                )
+            },
+        ) { padding ->
+            Box(Modifier.padding(padding)) {
+                when (step) {
+                    NewGameStep.CHARACTER -> CharacterPicker(
+                        onPick = { template ->
+                            draft = draft.fromTemplate(template)
+                            step = NewGameStep.EDIT_CHARACTER
+                        },
+                        onBlank = {
+                            draft = NewGameDraft()
+                            step = NewGameStep.EDIT_CHARACTER
                         },
                     )
-                },
-                navigationIcon = {
-                    IconButton(onClick = {
-                        step = when (step) {
-                            NewGameStep.CHARACTER -> return@IconButton onCancel()
-                            NewGameStep.EDIT_CHARACTER -> NewGameStep.CHARACTER
-                            NewGameStep.SETTING -> NewGameStep.EDIT_CHARACTER
-                            NewGameStep.OPENING -> NewGameStep.SETTING
-                        }
-                    }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-                },
-            )
-        },
-    ) { padding ->
-        Box(Modifier.padding(padding)) {
-            when (step) {
-                NewGameStep.CHARACTER -> CharacterPicker(
-                    onPick = { template ->
-                        draft = draft.fromTemplate(template)
-                        step = NewGameStep.EDIT_CHARACTER
-                    },
-                    onBlank = {
-                        draft = NewGameDraft()
-                        step = NewGameStep.EDIT_CHARACTER
-                    },
-                )
 
-                NewGameStep.EDIT_CHARACTER -> CharacterEditor(
-                    draft = draft,
-                    onChange = { draft = it },
-                    onNext = { step = NewGameStep.SETTING },
-                )
+                    NewGameStep.EDIT_CHARACTER -> CharacterEditor(
+                        draft = draft,
+                        onChange = { draft = it },
+                        onNext = { step = NewGameStep.SETTING },
+                    )
 
-                NewGameStep.SETTING -> SettingPicker(
-                    onPick = { seed ->
-                        draft = draft.copy(seed = seed, tone = draft.tone ?: seed.toneHint)
-                        step = NewGameStep.OPENING
-                    },
-                )
+                    NewGameStep.SETTING -> SettingPicker(
+                        onPick = { seed ->
+                            draft = draft.copy(seed = seed, tone = draft.tone ?: seed.toneHint)
+                            step = NewGameStep.OPENING
+                            onGenerateOpenings(draft.copy(seed = seed, tone = draft.tone ?: seed.toneHint))
+                        },
+                        onCustom = { step = NewGameStep.CUSTOM_WORLD },
+                    )
 
-                NewGameStep.OPENING -> OpeningPicker(
-                    draft = draft,
-                    onChange = { draft = it },
-                    creating = creating,
-                    onBegin = { onCreate(draft) },
-                )
+                    NewGameStep.CUSTOM_WORLD -> CustomWorldEditor(
+                        draft = draft,
+                        onChange = { draft = it },
+                        busy = creation.busy,
+                        onGenerate = { onGenerateWorld(draft) },
+                    )
+
+                    NewGameStep.OPENING -> OpeningPicker(
+                        draft = draft,
+                        onChange = { draft = it },
+                        openings = openings,
+                        loadingOpenings = (creation as? CreationState.Working)?.stage == CreationStage.FINDING_OPENINGS,
+                        busy = creation.busy,
+                        onRegenerate = { onGenerateOpenings(draft) },
+                        onBegin = { onCreate(draft) },
+                    )
+                }
             }
+        }
+
+        // Blocking, on top of everything, so no control can be tapped while work is in flight.
+        (creation as? CreationState.Working)?.let { CreationOverlay(it.stage) }
+    }
+
+    (creation as? CreationState.Failed)?.let { failure ->
+        AlertDialog(
+            onDismissRequest = onDismissError,
+            title = { Text("That did not work") },
+            text = {
+                Column {
+                    Text(failure.message)
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        "Nothing was saved. Your character and your choices are still here.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            },
+            confirmButton = { TextButton(onClick = onDismissError) { Text("Try again") } },
+        )
+    }
+}
+
+/**
+ * Full-screen, non-dismissable progress.
+ *
+ * World creation is several seconds of network work. Without this the buttons simply stop
+ * responding, which reads as a hang and invites the player to tap repeatedly — so it names the
+ * stage, shows how far along it is, and swallows every touch behind it.
+ */
+@Composable
+private fun CreationOverlay(stage: CreationStage) {
+    Surface(
+        color = MaterialTheme.colorScheme.scrim.copy(alpha = 0.86f),
+        modifier = Modifier
+            .fillMaxSize()
+            // Consumes all input, including taps aimed at the controls underneath.
+            .pointerInput(Unit) { detectTapGestures { } }
+            .semantics { contentDescription = "${stage.headline}. Please wait." },
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize().padding(36.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(52.dp),
+                strokeWidth = 3.dp,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(Modifier.height(28.dp))
+            Text(
+                stage.headline,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                stage.detail,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(24.dp))
+
+            // A step counter, so a long wait still reads as motion.
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                repeat(CreationStage.TOTAL) { index ->
+                    val done = index < stage.step
+                    Box(
+                        Modifier
+                            .size(width = if (index == stage.step - 1) 28.dp else 8.dp, height = 8.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(
+                                if (done) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.outlineVariant,
+                            ),
+                    )
+                }
+            }
+            Spacer(Modifier.height(16.dp))
+            Text(
+                "Step ${stage.step} of ${CreationStage.TOTAL}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
@@ -243,7 +406,7 @@ private fun Field(label: String, value: String, lines: Int = 1, onChange: (Strin
 }
 
 @Composable
-private fun SettingPicker(onPick: (SeedWorld) -> Unit) {
+private fun SettingPicker(onPick: (SeedWorld) -> Unit, onCustom: () -> Unit) {
     LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             Text(
@@ -253,6 +416,53 @@ private fun SettingPicker(onPick: (SeedWorld) -> Unit) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+
+        // Offered first, because a player who wants their own world should not have to scroll past
+        // six they do not want.
+        item {
+            OutlinedCard(
+                onClick = onCustom,
+                modifier = Modifier.fillMaxWidth(),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Default.AutoAwesome,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "Build your own world",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "Describe anywhere you like, in a sentence or a page. UNBOUND will lay out " +
+                            "its streets, fill them with people who already want things, and set its " +
+                            "quarrels running before you arrive.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+
+        item {
+            Text(
+                "OR START FROM ONE OF THESE",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                letterSpacing = 1.2.sp,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+        }
+
         items(Settings.ALL, key = { it.id }) { seed ->
             OutlinedCard(
                 onClick = { onPick(seed) },
@@ -281,43 +491,236 @@ private fun SettingPicker(onPick: (SeedWorld) -> Unit) {
     }
 }
 
+/** Where the player describes a world in their own words (§16). */
+@Composable
+private fun CustomWorldEditor(
+    draft: NewGameDraft,
+    onChange: (NewGameDraft) -> Unit,
+    busy: Boolean,
+    onGenerate: () -> Unit,
+) {
+    Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp)) {
+        Text(
+            "Describe the world you want to be in. A sentence is enough; a page works too.",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "Say what kind of place it is, what is wrong with it, and what people there care about. " +
+                "You do not need to invent names — that part is handled.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        Spacer(Modifier.height(16.dp))
+
+        OutlinedTextField(
+            value = draft.premise,
+            onValueChange = { onChange(draft.copy(premise = it)) },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("Your world") },
+            placeholder = { Text(WORLD_PLACEHOLDER) },
+            minLines = 6,
+            maxLines = 14,
+            enabled = !busy,
+        )
+
+        Spacer(Modifier.height(14.dp))
+        SectionHeading("Or start from an idea")
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            WORLD_SPARKS.forEach { spark ->
+                OutlinedCard(
+                    onClick = { onChange(draft.copy(premise = spark)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                ) {
+                    Text(
+                        spark,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(12.dp),
+                    )
+                }
+            }
+        }
+
+        SectionHeading("Tone")
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Tone.entries.forEach { tone ->
+                FilterChip(
+                    selected = draft.tone == tone,
+                    onClick = { onChange(draft.copy(tone = tone)) },
+                    label = { Text(tone.display) },
+                    enabled = !busy,
+                )
+            }
+        }
+
+        Spacer(Modifier.height(24.dp))
+        Button(
+            onClick = onGenerate,
+            enabled = draft.premise.trim().length >= 12 && !busy,
+            modifier = Modifier.fillMaxWidth().height(56.dp),
+        ) {
+            Text("Build this world")
+        }
+        Text(
+            "This makes one request to OpenAI and usually takes a few seconds.",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 8.dp).fillMaxWidth(),
+            textAlign = TextAlign.Center,
+        )
+        Spacer(Modifier.height(40.dp))
+    }
+}
+
+private const val WORLD_PLACEHOLDER =
+    "A mountain monastery that has taken in refugees from a war it is trying very hard not to " +
+        "have an opinion about. Winter is closing the passes. Somebody down in the guest wing is " +
+        "not who they say they are."
+
+private val WORLD_SPARKS = listOf(
+    "A generation ship four hundred years into a six-hundred-year voyage. The people who planned it are long dead and the people flying it have started to disagree about where they are going.",
+    "A river town where the water has begun running backwards two days a month, and the church has declared it a miracle before anyone could check.",
+    "The last functioning hospital in a city under siege, staffed by people who no longer ask which side a patient fought on.",
+    "A luxury hotel in a country that stopped existing eight months ago. The guests have not left and the staff have not been paid.",
+)
+
 @Composable
 private fun OpeningPicker(
     draft: NewGameDraft,
     onChange: (NewGameDraft) -> Unit,
-    creating: Boolean,
+    openings: List<OpeningOption>,
+    loadingOpenings: Boolean,
+    busy: Boolean,
+    onRegenerate: () -> Unit,
     onBegin: () -> Unit,
 ) {
     val seed = draft.seed ?: return
+    var writingOwn by rememberSaveable { mutableStateOf(false) }
+
     Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp)) {
-        SectionHeading("Opening situation")
+
+        // What the world turned out to be — particularly worth showing for a generated one, since
+        // the player has not seen it before.
+        OutlinedCard(
+            modifier = Modifier.fillMaxWidth(),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        ) {
+            Column(Modifier.padding(14.dp)) {
+                Text(seed.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "${seed.region} · ${seed.era}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(seed.summary, style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "${seed.locations.size} places · ${seed.npcs.size} people · " +
+                        "${seed.factions.size} factions · ${seed.threads.size} situations already running",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+
+        SectionHeading("Ways in")
         Text(
-            "Pick one, or refuse all of them and start in the ordinary run of your life.",
+            "Openings written for this character, in this place. Take one, or write your own, or " +
+                "refuse all of them and start in the ordinary run of your life.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(10.dp))
 
-        seed.openingHooks.forEach { hook ->
-            val selected = draft.hook == hook
-            OutlinedCard(
-                onClick = { onChange(draft.copy(hook = if (selected) null else hook)) },
-                modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
-                border = BorderStroke(
-                    if (selected) 2.dp else 1.dp,
-                    if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
-                ),
-            ) {
-                Text(hook, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(14.dp))
+        if (loadingOpenings) {
+            repeat(3) { OpeningPlaceholder() }
+        } else {
+            openings.forEach { opening ->
+                val selected = !writingOwn && draft.hook == opening.situation
+                OutlinedCard(
+                    onClick = {
+                        writingOwn = false
+                        onChange(draft.copy(hook = if (selected) null else opening.situation, customOpening = ""))
+                    },
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
+                    border = BorderStroke(
+                        if (selected) 2.dp else 1.dp,
+                        if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                    ),
+                ) {
+                    Column(Modifier.padding(14.dp)) {
+                        Text(
+                            opening.title,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Text(opening.situation, style = MaterialTheme.typography.bodyMedium)
+                        if (opening.pressure.isNotBlank()) {
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                opening.pressure,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (openings.isNotEmpty()) {
+                TextButton(onClick = onRegenerate, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+                    Text("Show me different ones")
+                }
+            }
+        }
+
+        // Writing your own, which must be as easy as taking one of the offered ones (§2.3).
+        OutlinedCard(
+            onClick = {
+                writingOwn = true
+                onChange(draft.copy(hook = null))
+            },
+            modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
+            border = BorderStroke(
+                if (writingOwn) 2.dp else 1.dp,
+                if (writingOwn) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+            ),
+        ) {
+            Column(Modifier.padding(14.dp)) {
+                Text(
+                    "Write my own opening",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (writingOwn) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                )
+                if (writingOwn) {
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = draft.customOpening,
+                        onValueChange = { onChange(draft.copy(customOpening = it, hook = null)) },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text("You have been awake for two days and the thing you were watching for has finally arrived.") },
+                        minLines = 3,
+                        maxLines = 8,
+                    )
+                }
             }
         }
 
         OutlinedCard(
-            onClick = { onChange(draft.copy(hook = null)) },
+            onClick = {
+                writingOwn = false
+                onChange(draft.copy(hook = null, customOpening = ""))
+            },
             modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
             border = BorderStroke(
-                if (draft.hook == null) 2.dp else 1.dp,
-                if (draft.hook == null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                if (!writingOwn && draft.hook == null) 2.dp else 1.dp,
+                if (!writingOwn && draft.hook == null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
             ),
         ) {
             Text(
@@ -358,17 +761,36 @@ private fun OpeningPicker(
         Spacer(Modifier.height(24.dp))
         Button(
             onClick = onBegin,
-            enabled = draft.valid && !creating,
+            enabled = draft.valid && !busy && !loadingOpenings,
             modifier = Modifier.fillMaxWidth().height(56.dp),
         ) {
-            if (creating) {
-                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                Spacer(Modifier.width(10.dp))
-                Text("Building the world…")
-            } else {
-                Text("Begin")
-            }
+            Text("Begin")
         }
         Spacer(Modifier.height(40.dp))
+    }
+}
+
+/** Skeleton rows while openings are being written, so the step does not sit empty. */
+@Composable
+private fun OpeningPlaceholder() {
+    val shimmer = rememberInfiniteTransition(label = "opening-placeholder")
+    val alpha by shimmer.animateFloat(
+        initialValue = 0.25f,
+        targetValue = 0.55f,
+        animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse),
+        label = "alpha",
+    )
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(vertical = 5.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = alpha))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Box(Modifier.fillMaxWidth(0.5f).height(14.dp).clip(RoundedCornerShape(4.dp)).background(MaterialTheme.colorScheme.outlineVariant))
+        Box(Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(4.dp)).background(MaterialTheme.colorScheme.outlineVariant))
+        Box(Modifier.fillMaxWidth(0.8f).height(10.dp).clip(RoundedCornerShape(4.dp)).background(MaterialTheme.colorScheme.outlineVariant))
     }
 }

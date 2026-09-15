@@ -3,6 +3,8 @@ package com.unbound.rpg.domain
 import android.content.Context
 import com.unbound.core.ai.AIProvider
 import com.unbound.core.ai.CostEstimator
+import com.unbound.core.content.OpeningGenerator
+import com.unbound.core.content.WorldGenerator
 import com.unbound.core.engine.GameFactory
 import com.unbound.core.engine.MemoryRetriever
 import com.unbound.core.engine.TurnPipeline
@@ -45,6 +47,8 @@ class AppContainer(context: Context) {
     val provider: AIProvider by lazy { OpenAIProvider(openAIClient, modelCatalog) }
 
     val gameFactory: GameFactory by lazy { GameFactory(store, clock, idFactory) }
+    val worldGenerator: WorldGenerator by lazy { WorldGenerator(provider) }
+    val openingGenerator: OpeningGenerator by lazy { OpeningGenerator(provider) }
     val retriever: MemoryRetriever by lazy { MemoryRetriever(store) }
     val pipeline: TurnPipeline by lazy { TurnPipeline(store, provider, clock, idFactory, retriever) }
     val journal: JournalBuilder by lazy { JournalBuilder(store) }

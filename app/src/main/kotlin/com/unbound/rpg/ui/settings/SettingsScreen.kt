@@ -199,12 +199,26 @@ private fun ModelSection(
 
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
-            if (state.models.any { it.fromLiveCatalog }) "Fetched from your account" else "Not yet fetched",
+            when {
+                state.loadingModels -> "Asking OpenAI what your key can reach…"
+                state.models.any { it.fromLiveCatalog } -> "Fetched from your account"
+                else -> "Not yet fetched — showing what is known offline"
+            },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.weight(1f),
         )
-        TextButton(onClick = onRefresh, enabled = !state.loadingModels) { Text("Refresh") }
+        if (state.loadingModels) {
+            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+            Spacer(Modifier.width(12.dp))
+        } else {
+            TextButton(onClick = onRefresh) { Text("Refresh") }
+        }
+    }
+    // An indeterminate bar, because the request has no meaningful percentage and a bar that
+    // pretends otherwise is worse than one that does not.
+    if (state.loadingModels) {
+        LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = 6.dp))
     }
     state.modelError?.let {
         Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)

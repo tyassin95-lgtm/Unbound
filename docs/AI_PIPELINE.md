@@ -111,6 +111,24 @@ Deliberately deterministic, and therefore free:
 
 One model call per narrative turn. Asserted by test.
 
+## The other two model calls
+
+Besides the narrative turn, exactly two other operations reach a model, both only during world
+creation and both at most once per campaign:
+
+| Call | Schema | When |
+|---|---|---|
+| World generation | `WorldGenerationSchema.schema()` | Only when the player writes their own premise |
+| Opening generation | `WorldGenerationSchema.openingsSchema()` | Once, after the character and world are both known |
+
+Both return strict structured output, and both are sanitised before use. A note on schema shape:
+strict mode requires `additionalProperties: false` at every level, which makes arbitrary object
+keys impossible — so a location's exits travel as `[{label, to}]` rather than a `{label: to}` map.
+
+Neither call can block play. A failed opening generation falls back to the world's authored hooks;
+a failed *opening scene* still leaves a complete, playable world and tells the player only the
+first paragraph is missing.
+
 ## Prompt structure
 
 Split three ways so the stable part can actually be cached:

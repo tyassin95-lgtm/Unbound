@@ -55,6 +55,12 @@ class MockAIProvider(
             return AITextResponse("this is not json at all", AIUsage(100, 20), request.modelId)
         }
 
+        // A raw hook, for callers whose schema is not the turn schema — world and opening
+        // generation return their own shapes.
+        behaviour.rawResponder?.let { raw ->
+            return AITextResponse(raw(request), usageFor(request), request.modelId)
+        }
+
         behaviour.scriptedResponses.removeFirstOrNull()?.let { scripted ->
             return AITextResponse(json.encodeToString(TurnResponseDto.serializer(), scripted), usageFor(request), request.modelId)
         }
@@ -126,6 +132,11 @@ class MockBehaviour(
     val scriptedResponses: ArrayDeque<TurnResponseDto> = ArrayDeque(),
     val models: List<ModelProfile> = MockAIProvider.DEFAULT_MODELS,
     var responder: (MockTurnInput) -> TurnResponseDto = ::defaultResponder,
+    /**
+     * Returns the response body verbatim, bypassing the turn-schema DTO. Used by tests for world
+     * and opening generation, which ask for a different shape entirely.
+     */
+    var rawResponder: ((AITextRequest) -> String)? = null,
 )
 
 /**

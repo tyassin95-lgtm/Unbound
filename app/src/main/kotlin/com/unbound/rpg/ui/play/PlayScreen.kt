@@ -375,7 +375,17 @@ private fun InputBar(
                     enabled = enabled && value.isNotBlank(),
                     modifier = Modifier.size(52.dp),
                 ) {
-                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
+                    // The button itself carries the wait, so the player's thumb is already on the
+                    // thing that is busy and there is nothing to tap again.
+                    if (enabled) {
+                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
+                    } else {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
         }

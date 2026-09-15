@@ -1,10 +1,10 @@
 # Testing
 
-82 tests, 0 failures. No test makes a network call or needs an API key.
+103 tests, 0 failures. No test makes a network call or needs an API key.
 
 ```bash
-./gradlew :core:test            # 65 tests — engine, pure JVM, ~2s
-./gradlew :app:testDebugUnitTest # 17 tests — Room on real SQLite + security
+./gradlew :core:test            # 79 tests — engine, pure JVM, ~2s
+./gradlew :app:testDebugUnitTest # 24 tests — Room on real SQLite, creation, security
 ./gradlew test                   # everything
 ```
 
@@ -27,6 +27,10 @@
 | `JournalTest` | 2 | 0.3s | derived views, no knowledge leaks |
 | `KnowledgeScopeTest` | 2 | 0.0s | secrets and rumors |
 | `LongTermMemoryTest` | 1 | 0.2s | the §94 scenario across 120 turns |
+| `WorldSanitiserTest` | 11 | 0.0s | generated worlds treated as untrusted input |
+| `GameCreatorTest` | 7 | 0.1s | creation progress ordering, failure recovery |
+| `OpeningGeneratorTest` | 2 | 0.0s | opening parsing and tailoring |
+| `GeneratedWorldPlayableTest` | 1 | 0.0s | an invented world plays through the ordinary engine |
 
 ## The mock provider
 
@@ -90,6 +94,11 @@ Not hypothetical — each of these was caught by a failing test during developme
    Import now regenerates every id and rewrites every reference.
 4. **Lossy export.** The first export dropped all knowledge rows and most memories and items.
    Full-enumeration accessors were added to the store contract.
+5. **Creation progress went idle too early** — reported by a player. The busy state was cleared
+   *before* the opening-scene request, so the Begin button re-enabled while the call was still in
+   flight and invited repeated taps. The orchestration was extracted into `GameCreator` so the
+   emitted sequence could be pinned, and `GameCreatorTest` now asserts nothing goes idle until the
+   last call returns.
 
 ## What is *not* tested, and why
 
