@@ -32,6 +32,7 @@ class WorldGenerator(
         val response = provider.generateText(
             AITextRequest(
                 modelId = request.modelId,
+                providerId = request.providerId,
                 stableSystemPrompt = SYSTEM_PROMPT,
                 dynamicContext = buildContext(request),
                 userInput = "Build this world.",
@@ -224,6 +225,8 @@ Return only the structured object.
 data class WorldGenerationRequest(
     val premise: String,
     val modelId: String,
+    /** The vendor this campaign will run on; generation must use it too. */
+    val providerId: String? = null,
     val characterName: String,
     val characterAge: Int,
     val characterGender: String,

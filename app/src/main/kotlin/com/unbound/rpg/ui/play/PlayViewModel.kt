@@ -198,9 +198,17 @@ class PlayViewModel(
         viewModelScope.launch {
             when (val result = session.submit(text)) {
                 is SessionResult.Narrated -> {
+                    // A different narrator for one turn is worth a line. Saying nothing would
+                    // leave the player wondering why the prose changed.
+                    val fallbackNote = result.servedByFallbackFrom?.let { from ->
+                        SceneEntry.SystemNote(
+                            nextId(),
+                            "$from was unavailable, so this turn was written by your backup provider.",
+                        )
+                    }
                     _state.update {
                         it.copy(
-                            entries = it.entries + SceneEntry.Narration(
+                            entries = it.entries + listOfNotNull(fallbackNote) + SceneEntry.Narration(
                                 nextId(), result.narrative, result.turnNumber, result.playerDialogue,
                                 result.diagnostics, result.rejected,
                             ),

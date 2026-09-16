@@ -27,8 +27,16 @@ import com.unbound.core.model.NarrationLength
 import com.unbound.rpg.data.settings.SettingsState
 import com.unbound.rpg.ui.components.SectionHeading
 
-data class SettingsUiState(
-    val settings: SettingsState = SettingsState(),
+/**
+ * One vendor, as the settings screen sees it.
+ *
+ * Each provider is configured independently — its own key, its own connection state, its own model
+ * list — because the player may have one, the other, or both, and nothing about having one should
+ * imply anything about the other.
+ */
+data class ProviderUiState(
+    val id: String,
+    val displayName: String,
     val maskedKey: String? = null,
     val models: List<ModelProfile> = emptyList(),
     val loadingModels: Boolean = false,
@@ -36,21 +44,43 @@ data class SettingsUiState(
     val testing: Boolean = false,
     val testResult: String? = null,
     val testSucceeded: Boolean? = null,
+) {
+    val connected: Boolean get() = maskedKey != null
+    val storyModels: List<ModelProfile> get() = models.filter { it.supportsStructuredOutput }
+    val imageModels: List<ModelProfile> get() = models.filter { it.supportsImages }
+}
+
+data class SettingsUiState(
+    val settings: SettingsState = SettingsState(),
+    val providers: List<ProviderUiState> = emptyList(),
     val usage: CostSummary = CostSummary(),
     val imageCacheBytes: Long = 0,
-)
+) {
+    fun provider(id: String?): ProviderUiState? = providers.firstOrNull { it.id == id }
+
+    /** The vendor currently selected for the story. */
+    val storyProvider: ProviderUiState? get() = provider(settings.textProviderId)
+
+    /** Where pictures come from: its own choice, defaulting to whoever tells the story. */
+    val pictureProvider: ProviderUiState? get() = provider(settings.imageProviderId ?: settings.textProviderId)
+
+    val anyConnected: Boolean get() = providers.any { it.connected }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     state: SettingsUiState,
     onBack: () -> Unit,
-    onStoreKey: (String) -> Unit,
-    onRemoveKey: () -> Unit,
-    onTestKey: () -> Unit,
-    onRefreshModels: () -> Unit,
+    onStoreKey: (String, String) -> Unit,
+    onRemoveKey: (String) -> Unit,
+    onTestKey: (String) -> Unit,
+    onRefreshModels: (String) -> Unit,
+    onPickProvider: (String) -> Unit,
+    onPickFallbackProvider: (String?) -> Unit,
     onPickTextModel: (String) -> Unit,
     onPickImageModel: (String?) -> Unit,
+    onPickImageProvider: (String?) -> Unit,
     onImageMode: (ImageMode) -> Unit,
     onNarrationLength: (NarrationLength) -> Unit,
     onSuggestions: (Boolean) -> Unit,
@@ -77,8 +107,8 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp),
         ) {
-            CredentialSection(state, onStoreKey, onRemoveKey, onTestKey)
-            ModelSection(state, onRefreshModels, onPickTextModel, onPickImageModel, onImageMode)
+            ProviderSection(state, onStoreKey, onRemoveKey, onTestKey, onPickProvider, onPickFallbackProvider)
+            ModelSection(state, onRefreshModels, onPickTextModel, onPickImageModel, onPickImageProvider, onImageMode)
             GameplaySection(state, onNarrationLength, onSuggestions, onReducedMotion)
             ContentSection(state, onLimits)
             UsageSection(state)
@@ -90,33 +120,107 @@ fun SettingsScreen(
 }
 
 @Composable
-private fun CredentialSection(
+private fun ProviderSection(
     state: SettingsUiState,
+    onStoreKey: (String, String) -> Unit,
+    onRemoveKey: (String) -> Unit,
+    onTestKey: (String) -> Unit,
+    onPickProvider: (String) -> Unit,
+    onPickFallback: (String?) -> Unit,
+) {
+    SectionHeading("AI provider")
+    Text(
+        "UNBOUND uses your own account. Add a key for whichever service you want to play with — " +
+            "you do not need both.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(bottom = 8.dp),
+    )
+
+    state.providers.forEach { provider ->
+        ProviderCard(
+            provider = provider,
+            isStoryProvider = provider.id == state.settings.textProviderId,
+            onSelect = { onPickProvider(provider.id) },
+            onStoreKey = { onStoreKey(provider.id, it) },
+            onRemoveKey = { onRemoveKey(provider.id) },
+            onTestKey = { onTestKey(provider.id) },
+        )
+    }
+
+    // Only meaningful once two keys exist, so it stays out of the way until it does.
+    val connected = state.providers.filter { it.connected }
+    if (connected.size > 1) {
+        Text("If the chosen provider is unavailable", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 16.dp))
+        ListItem(
+            headlineContent = { Text("Stop and tell me") },
+            supportingContent = { Text("The turn is not taken. Nothing in the world changes.") },
+            trailingContent = {
+                RadioButton(selected = state.settings.fallbackProviderId == null, onClick = { onPickFallback(null) })
+            },
+            modifier = Modifier.clickableRow { onPickFallback(null) },
+        )
+        connected.filter { it.id != state.settings.textProviderId }.forEach { other ->
+            ListItem(
+                headlineContent = { Text("Use ${other.displayName} for that turn") },
+                supportingContent = {
+                    Text(
+                        "Only when ${state.storyProvider?.displayName ?: "your provider"} is rate-limited, " +
+                            "down or unreachable — never for a refused request or a rejected key. " +
+                            "You will be told when it happens.",
+                    )
+                },
+                trailingContent = {
+                    RadioButton(
+                        selected = state.settings.fallbackProviderId == other.id,
+                        onClick = { onPickFallback(other.id) },
+                    )
+                },
+                modifier = Modifier.clickableRow { onPickFallback(other.id) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun ProviderCard(
+    provider: ProviderUiState,
+    isStoryProvider: Boolean,
+    onSelect: () -> Unit,
     onStoreKey: (String) -> Unit,
     onRemoveKey: () -> Unit,
     onTestKey: () -> Unit,
 ) {
-    var editing by rememberSaveable { mutableStateOf(false) }
-    var newKey by rememberSaveable { mutableStateOf("") }
-    var visible by rememberSaveable { mutableStateOf(false) }
+    var editing by rememberSaveable(provider.id) { mutableStateOf(false) }
+    var newKey by rememberSaveable(provider.id) { mutableStateOf("") }
+    var visible by rememberSaveable(provider.id) { mutableStateOf(false) }
     var confirmRemove by remember { mutableStateOf(false) }
 
-    SectionHeading("AI provider")
     ListItem(
-        headlineContent = { Text("OpenAI") },
-        supportingContent = { Text("Your key, your account, your billing.") },
+        headlineContent = { Text(provider.displayName) },
+        supportingContent = {
+            Text(if (provider.connected) "Connected" else "Not connected")
+        },
+        trailingContent = {
+            // Selectable only once it can actually serve a turn; choosing a provider with no key
+            // would look like it had been accepted and then fail on the next turn.
+            if (provider.connected) {
+                RadioButton(selected = isStoryProvider, onClick = onSelect)
+            }
+        },
+        modifier = if (provider.connected) Modifier.clickableRow(onSelect) else Modifier,
     )
 
-    if (state.maskedKey != null && !editing) {
+    if (provider.connected && !editing) {
         ListItem(
             headlineContent = {
                 // Never the whole key, even to its owner, once it has been stored (§82).
-                Text(state.maskedKey, fontFamily = FontFamily.Monospace)
+                Text(provider.maskedKey.orEmpty(), fontFamily = FontFamily.Monospace)
             },
             supportingContent = { Text("Stored in this device's secure hardware keystore.") },
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = onTestKey, enabled = !state.testing) { Text("Test") }
+            OutlinedButton(onClick = onTestKey, enabled = !provider.testing) { Text("Test") }
             OutlinedButton(onClick = { editing = true; newKey = "" }) { Text("Replace") }
             TextButton(onClick = { confirmRemove = true }) {
                 Text("Remove", color = MaterialTheme.colorScheme.error)
@@ -126,11 +230,12 @@ private fun CredentialSection(
         OutlinedTextField(
             value = newKey,
             onValueChange = { newKey = it.trim() },
-            label = { Text("OpenAI API key") },
+            label = { Text("${provider.displayName} API key") },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
             visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            supportingText = { Text(keyHint(provider.id)) },
             trailingIcon = {
                 IconButton(onClick = { visible = !visible }) {
                     Icon(
@@ -144,37 +249,37 @@ private fun CredentialSection(
             Button(onClick = { onStoreKey(newKey); editing = false; newKey = "" }, enabled = newKey.isNotBlank()) {
                 Text("Save key")
             }
-            if (state.maskedKey != null) {
+            if (provider.connected) {
                 TextButton(onClick = { editing = false; newKey = "" }) { Text("Cancel") }
             }
         }
     }
 
-    if (state.testing) {
+    if (provider.testing) {
         Row(Modifier.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
             Spacer(Modifier.width(10.dp))
-            Text("Checking with OpenAI…", style = MaterialTheme.typography.bodySmall)
+            Text("Checking with ${provider.displayName}…", style = MaterialTheme.typography.bodySmall)
         }
     }
-    state.testResult?.let { result ->
+    provider.testResult?.let { result ->
         Text(
             result,
             style = MaterialTheme.typography.bodySmall,
-            color = if (state.testSucceeded == true) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+            color = if (provider.testSucceeded == true) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
             modifier = Modifier.padding(vertical = 8.dp),
         )
     }
+    HorizontalDivider(Modifier.padding(vertical = 8.dp))
 
     if (confirmRemove) {
         AlertDialog(
             onDismissRequest = { confirmRemove = false },
-            title = { Text("Remove the key?") },
+            title = { Text("Remove the ${provider.displayName} key?") },
             text = {
                 Text(
                     "The key will be erased from this device. Your worlds, characters and history " +
-                        "are untouched — you simply will not be able to take new turns until you " +
-                        "add a key again.",
+                        "are untouched, and any other provider you have set up keeps working.",
                 )
             },
             confirmButton = {
@@ -187,79 +292,114 @@ private fun CredentialSection(
     }
 }
 
+private fun keyHint(providerId: String): String = when (providerId) {
+    "gemini" -> "Begins with AIza. Free from Google AI Studio."
+    else -> "Begins with sk-."
+}
+
 @Composable
 private fun ModelSection(
     state: SettingsUiState,
-    onRefresh: () -> Unit,
+    onRefresh: (String) -> Unit,
     onPickText: (String) -> Unit,
     onPickImage: (String?) -> Unit,
+    onPickImageProvider: (String?) -> Unit,
     onImageMode: (ImageMode) -> Unit,
 ) {
-    SectionHeading("Models")
+    val story = state.storyProvider
+    if (story == null || !story.connected) {
+        SectionHeading("Models")
+        Text(
+            "Add a key above and the models your account can reach will be listed here.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        return
+    }
 
+    SectionHeading("Story model")
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
             when {
-                state.loadingModels -> "Asking OpenAI what your key can reach…"
-                state.models.any { it.fromLiveCatalog } -> "Fetched from your account"
+                story.loadingModels -> "Asking ${story.displayName} what your key can reach…"
+                story.models.any { it.fromLiveCatalog } -> "From your ${story.displayName} account"
                 else -> "Not yet fetched — showing what is known offline"
             },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.weight(1f),
         )
-        if (state.loadingModels) {
+        if (story.loadingModels) {
             CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
             Spacer(Modifier.width(12.dp))
         } else {
-            TextButton(onClick = onRefresh) { Text("Refresh") }
+            TextButton(onClick = { onRefresh(story.id) }) { Text("Refresh") }
         }
     }
     // An indeterminate bar, because the request has no meaningful percentage and a bar that
     // pretends otherwise is worse than one that does not.
-    if (state.loadingModels) {
+    if (story.loadingModels) {
         LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = 6.dp))
     }
-    state.modelError?.let {
+    story.modelError?.let {
         Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
     }
 
-    val storyModels = state.models.filter { it.supportsStructuredOutput }
-    val unusable = state.models.filter { !it.supportsStructuredOutput && !it.supportsImages && it.capabilities.isNotEmpty() }
-    val imageModels = state.models.filter { it.supportsImages }
-
-    Text("Story model", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 12.dp))
-    if (storyModels.isEmpty()) {
+    if (story.storyModels.isEmpty()) {
         Text(
-            "No compatible model found yet. A story model must support strict structured output.",
+            "No compatible model found yet. A story model must be able to return a strict " +
+                "structured response, which is how the world stays consistent.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
-    storyModels.forEach { model ->
+    story.storyModels.forEach { model ->
         ModelRow(model, selected = state.settings.defaultTextModelId == model.id) { onPickText(model.id) }
     }
 
+    val unusable = story.models.filter { !it.supportsStructuredOutput && !it.supportsImages && it.capabilities.isNotEmpty() }
     if (unusable.isNotEmpty()) {
         // Shown, but explained — never silently hidden, and never silently substituted (§7).
         Text(
-            "Not usable for storytelling: ${unusable.joinToString(", ") { it.id }}. " +
-                "These models cannot guarantee the structured output the world engine needs.",
+            "Not usable for storytelling: ${unusable.take(8).joinToString(", ") { it.id }}. " +
+                "These cannot guarantee the structured output the world engine needs.",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 8.dp),
         )
     }
 
-    Text("Image model", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 16.dp))
+    SectionHeading("Pictures")
+    val picture = state.pictureProvider
+    val withImages = state.providers.filter { it.connected && it.imageModels.isNotEmpty() }
+    if (withImages.size > 1) {
+        Text("Drawn by", style = MaterialTheme.typography.titleSmall)
+        withImages.forEach { p ->
+            ListItem(
+                headlineContent = { Text(p.displayName) },
+                trailingContent = {
+                    RadioButton(
+                        selected = picture?.id == p.id,
+                        onClick = { onPickImageProvider(p.id.takeIf { it != state.settings.textProviderId }) },
+                    )
+                },
+                modifier = Modifier.clickableRow {
+                    onPickImageProvider(p.id.takeIf { it != state.settings.textProviderId })
+                },
+            )
+        }
+    }
+
+    Text("Image model", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
     ListItem(
         headlineContent = { Text("None") },
+        supportingContent = { Text("No pictures will be generated.") },
         trailingContent = {
             RadioButton(selected = state.settings.defaultImageModelId == null, onClick = { onPickImage(null) })
         },
         modifier = Modifier.clickableRow { onPickImage(null) },
     )
-    imageModels.forEach { model ->
+    picture?.imageModels.orEmpty().forEach { model ->
         ModelRow(model, selected = state.settings.defaultImageModelId == model.id) { onPickImage(model.id) }
     }
 
@@ -296,7 +436,7 @@ private fun ModelRow(model: ModelProfile, selected: Boolean, onClick: () -> Unit
                 val price = model.inputCostPerMillion
                 if (price != null) {
                     Text(
-                        "≈ \$%.2f in / \$%.2f out per million tokens (estimate)".format(price, model.outputCostPerMillion ?: 0.0),
+                        "\u2248 \$%.2f in / \$%.2f out per million tokens (estimate)".format(price, model.outputCostPerMillion ?: 0.0),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

@@ -27,6 +27,7 @@ class SecretScanTest {
      */
     private val secretPatterns = listOf(
         "OpenAI secret key" to Regex("""sk-[A-Za-z0-9_\-]{20,}"""),
+        "Google API key" to Regex("""AIza[A-Za-z0-9_\-]{30,}"""),
         "OpenAI project key" to Regex("""sk-proj-[A-Za-z0-9_\-]{10,}"""),
         "assigned bearer token" to Regex("""(?i)bearer\s+[A-Za-z0-9._\-]{24,}"""),
         "hardcoded api key assignment" to Regex("""(?i)(api[_-]?key|apikey)\s*[:=]\s*"[A-Za-z0-9_\-]{16,}""""),
@@ -122,14 +123,59 @@ class SecretScanTest {
 
     @Test
     fun `masking never reveals enough of a key to use it`() {
-        val key = "sk-proj-" + "B".repeat(40)
-        val masked = SecureCredentialStore.mask(key)
+        for ((key, prefix) in listOf(
+            ("sk-proj-" + "B".repeat(40)) to "sk-",
+            ("AIza" + "C".repeat(35)) to "AIza",
+        )) {
+            val masked = SecureCredentialStore.mask(key)
 
-        assertFalse("The masked form must not contain the key", masked.contains(key))
-        assertTrue("It should still be recognisable", masked.startsWith("sk-"))
-        assertTrue(masked.contains("•"))
-        // Enough to tell two keys apart, not enough to reconstruct one.
-        assertTrue("Too much of the key is shown: $masked", masked.count { it != '•' } <= 12)
+            assertFalse("The masked form must not contain the key", masked.contains(key))
+            assertTrue("It should still be recognisable as $prefix", masked.startsWith(prefix))
+            assertTrue(masked.contains("•"))
+            // Enough to tell two keys apart, not enough to reconstruct one.
+            assertTrue("Too much of the key is shown: $masked", masked.count { it != '•' } <= 12)
+        }
+    }
+
+    /**
+     * Each provider gets its own ciphertext file and its own non-extractable Keystore key, so one
+     * credential cannot be read out through another and clearing one leaves the other working.
+     */
+    @Test
+    fun `providers do not share a credential file or a key alias`() {
+        val source = File(repoRoot, "app/src/main/kotlin/com/unbound/rpg/data/security/SecureCredentialStore.kt").readText()
+
+        assertTrue(
+            "The file name must be derived from the provider",
+            source.contains("credential.\$providerId.bin"),
+        )
+        assertTrue(
+            "The Keystore alias must be derived from the provider",
+            source.contains("unbound.credential.\$providerId.v1"),
+        )
+        // And the original single-provider install must keep working rather than losing its key.
+        assertTrue(
+            "OpenAI must keep the legacy names so an existing key survives the upgrade",
+            source.contains("\"credential.bin\"") && source.contains("\"unbound.credential.v1\""),
+        )
+    }
+
+    /** Google's own quickstarts put the key in the URL. A URL is not a private place. */
+    @Test
+    fun `no client puts a credential in a query parameter`() {
+        val clients = listOf(
+            "app/src/main/kotlin/com/unbound/rpg/data/ai/gemini/GeminiClient.kt",
+            "app/src/main/kotlin/com/unbound/rpg/data/ai/openai/OpenAIClient.kt",
+        ).map { File(repoRoot, it) }
+
+        clients.forEach { file ->
+            val text = file.readText()
+            val offending = Regex("""[?&](key|api_key|apikey|access_token)=\\$""").find(text)
+            assertTrue(
+                "${file.name} appears to put a credential in a URL: ${offending?.value}",
+                offending == null,
+            )
+        }
     }
 
     private companion object {

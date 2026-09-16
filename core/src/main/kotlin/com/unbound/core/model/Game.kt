@@ -59,9 +59,25 @@ data class GameRecord(
     val narrationLength: NarrationLength = NarrationLength.NORMAL,
     val limits: List<String> = emptyList(),
     val textModelId: String,
+    /**
+     * Which vendor runs this campaign's story, defaulted for saves written before there was a
+     * choice. Stored per game rather than globally: switching provider mid-campaign is the
+     * player's call, and two campaigns can reasonably run on different ones.
+     */
+    val textProviderId: String = DEFAULT_PROVIDER_ID,
+    val imageProviderId: String? = null,
     val imageModelId: String? = null,
     val imageMode: ImageMode = ImageMode.ON_DEMAND,
     val stateVersion: Long = 1,
     val previewImageId: String? = null,
     val suggestedActionsEnabled: Boolean = true,
-)
+) {
+    companion object {
+        /**
+         * What a campaign written before providers were a choice is assumed to have used, because
+         * that is what it did use. Never guessed at from settings: a save's provider is part of the
+         * save.
+         */
+        const val DEFAULT_PROVIDER_ID = "openai"
+    }
+}

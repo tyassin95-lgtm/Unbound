@@ -324,6 +324,8 @@ data class UsageEntity(
     val timestampMs: Long,
     val requestType: String,
     val modelId: String,
+    /** Defaults to openai so rows written before there was a choice price correctly. */
+    val providerId: String = "openai",
     val inputTokens: Int,
     val outputTokens: Int,
     val cachedTokens: Int,

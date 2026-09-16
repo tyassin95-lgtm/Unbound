@@ -28,7 +28,8 @@ import com.unbound.rpg.R
  */
 @Composable
 fun OnboardingScreen(
-    onConnect: (String) -> Unit,
+    /** (providerId, key) — the player chooses which service to bring before typing anything. */
+    onConnect: (String, String) -> Unit,
     onSkip: () -> Unit,
     testing: Boolean,
     testResult: String?,
@@ -36,8 +37,11 @@ fun OnboardingScreen(
     onTest: (String) -> Unit,
     onContinue: () -> Unit,
 ) {
+    var providerId by rememberSaveable { mutableStateOf("gemini") }
     var key by rememberSaveable { mutableStateOf("") }
     var visible by rememberSaveable { mutableStateOf(false) }
+
+    val providerName = if (providerId == "gemini") "Google Gemini" else "OpenAI"
 
     Column(
         modifier = Modifier
@@ -64,8 +68,9 @@ fun OnboardingScreen(
         Spacer(Modifier.height(44.dp))
 
         Text(
-            "Bring your own OpenAI API key. Your key is stored securely on this device and used " +
-                "for requests to OpenAI. OpenAI usage and billing are handled by your OpenAI account.",
+            "Bring your own API key. It is stored in this device's secure hardware and used only " +
+                "for requests to the service you choose, which is where usage and billing are " +
+                "handled.",
             style = MaterialTheme.typography.bodyMedium,
             textAlign = TextAlign.Center,
             color = MaterialTheme.colorScheme.onSurface,
@@ -74,20 +79,50 @@ fun OnboardingScreen(
         Spacer(Modifier.height(12.dp))
 
         Text(
-            "UNBOUND has no account, no server, and never sends your key or your story anywhere " +
-                "except OpenAI.",
+            "UNBOUND has no account and no server of its own, and never sends your key or your " +
+                "story anywhere but the service you pick. You can add the other one later.",
             style = MaterialTheme.typography.bodySmall,
             textAlign = TextAlign.Center,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
-        Spacer(Modifier.height(32.dp))
+        Spacer(Modifier.height(28.dp))
+
+        // Gemini leads because it has a free tier, which is the difference between trying the
+        // game tonight and setting up billing first.
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+            SegmentedButton(
+                selected = providerId == "gemini",
+                onClick = { providerId = "gemini"; key = "" },
+                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+            ) { Text("Google Gemini") }
+            SegmentedButton(
+                selected = providerId == "openai",
+                onClick = { providerId = "openai"; key = "" },
+                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+            ) { Text("OpenAI") }
+        }
+
+        Spacer(Modifier.height(8.dp))
+
+        Text(
+            if (providerId == "gemini") {
+                "Free to start: get a key from Google AI Studio. Free-tier requests are rate-limited."
+            } else {
+                "Pay as you go: get a key from platform.openai.com. Requires billing on your account."
+            },
+            style = MaterialTheme.typography.bodySmall,
+            textAlign = TextAlign.Center,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        Spacer(Modifier.height(24.dp))
 
         OutlinedTextField(
             value = key,
             onValueChange = { key = it.trim() },
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("OpenAI API key") },
+            label = { Text("$providerName API key") },
             singleLine = true,
             visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
@@ -99,7 +134,7 @@ fun OnboardingScreen(
                     )
                 }
             },
-            supportingText = { Text("Begins with sk-") },
+            supportingText = { Text(if (providerId == "gemini") "Begins with AIza" else "Begins with sk-") },
         )
 
         Spacer(Modifier.height(16.dp))
@@ -107,7 +142,7 @@ fun OnboardingScreen(
         if (testing) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                Text("Checking the key with OpenAI…", style = MaterialTheme.typography.bodySmall)
+                Text("Checking the key with $providerName…", style = MaterialTheme.typography.bodySmall)
             }
             Spacer(Modifier.height(16.dp))
         }
@@ -131,11 +166,11 @@ fun OnboardingScreen(
         }
 
         Button(
-            onClick = { onConnect(key); onTest(key) },
+            onClick = { onConnect(providerId, key); onTest(providerId) },
             enabled = key.isNotBlank() && !testing,
             modifier = Modifier.fillMaxWidth().height(52.dp),
         ) {
-            Text("Connect OpenAI")
+            Text("Connect $providerName")
         }
 
         if (testSucceeded == true) {

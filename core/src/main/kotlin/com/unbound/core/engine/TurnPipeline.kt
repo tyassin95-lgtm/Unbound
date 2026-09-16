@@ -133,6 +133,9 @@ class TurnPipeline(
         val guardClause = com.unbound.core.safety.ContentGuard.sceneClause(player, assembly.context.relevantNpcs)
         val request = AITextRequest(
             modelId = game.textModelId,
+            // The campaign's own choice, carried through opaquely. The pipeline does not know what
+            // an "openai" is; it knows this save says which one it runs on.
+            providerId = game.textProviderId,
             stableSystemPrompt = PromptModules.stableSystemPrompt(),
             dynamicContext = if (guardClause == null) assembly.dynamicContext else assembly.dynamicContext + "\n\n## " + guardClause,
             userInput = if (directive != null) DIRECTIVE_INPUT else playerInput,
@@ -148,7 +151,7 @@ class TurnPipeline(
             // Nothing was written beyond the pending row, so the world is untouched and the same
             // idempotency key can be replayed safely.
             store.upsertTurn(pendingTurn.copy(status = TurnStatus.PENDING, errorMessage = e.message))
-            store.recordUsage(failureUsage(gameId, turnId, game.textModelId, clock() - started, e.kind))
+            store.recordUsage(failureUsage(gameId, turnId, game.textModelId, game.textProviderId, clock() - started, e.kind))
             return TurnOutcome.Failure(e.message, e.kind, retryable = e.kind.retryable, turnId = turnId, idempotencyKey = idempotencyKey)
         }
 
@@ -156,7 +159,7 @@ class TurnPipeline(
             json.decodeFromString(TurnResponseDto.serializer(), extractJson(aiResponse.text))
         } catch (e: Exception) {
             store.upsertTurn(pendingTurn.copy(status = TurnStatus.PENDING, errorMessage = "Malformed response: ${e.message}"))
-            store.recordUsage(failureUsage(gameId, turnId, game.textModelId, clock() - started, AIErrorKind.MALFORMED_RESPONSE))
+            store.recordUsage(failureUsage(gameId, turnId, game.textModelId, game.textProviderId, clock() - started, AIErrorKind.MALFORMED_RESPONSE))
             return TurnOutcome.Failure(
                 "The model returned something this game could not read. The turn was not applied — try again.",
                 AIErrorKind.MALFORMED_RESPONSE,
@@ -1005,6 +1008,8 @@ class TurnPipeline(
             errorMessage = null,
             // Kept so the next turn can tell the model what moved while the player was busy.
             worldNotes = simulation.notes.map { it.summary }.take(MAX_WORLD_NOTES),
+            modelId = usage.modelId,
+            providerId = usage.providerId ?: game.textProviderId,
         )
         store.upsertTurn(completedTurn)
 
@@ -1029,6 +1034,7 @@ class TurnPipeline(
                 timestampMs = now,
                 requestType = RequestType.NARRATIVE_TURN,
                 modelId = usage.modelId,
+                providerId = usage.providerId ?: game.textProviderId,
                 inputTokens = usage.usage.inputTokens,
                 outputTokens = usage.usage.outputTokens,
                 cachedTokens = usage.usage.cachedInputTokens,
@@ -1056,16 +1062,25 @@ class TurnPipeline(
                 rejected = issues.size,
                 sceneIsSignificant = response.sceneIsSignificant,
             ),
+            servedByFallbackFrom = usage.servedByFallbackFrom,
         )
     }
 
-    private fun failureUsage(gameId: String, turnId: String, modelId: String, latency: Long, kind: AIErrorKind) = UsageRecord(
+    private fun failureUsage(
+        gameId: String,
+        turnId: String,
+        modelId: String,
+        providerId: String,
+        latency: Long,
+        kind: AIErrorKind,
+    ) = UsageRecord(
         id = idFactory(),
         gameId = gameId,
         turnId = turnId,
         timestampMs = clock(),
         requestType = RequestType.NARRATIVE_TURN,
         modelId = modelId,
+        providerId = providerId,
         latencyMs = latency,
         success = false,
         errorKind = kind.name,
@@ -1152,6 +1167,13 @@ sealed interface TurnOutcome {
         val appliedEvents: List<GameEvent>,
         val issues: List<ValidationIssue>,
         val diagnostics: TurnDiagnostics,
+        /**
+         * Set when a second provider served this turn because the chosen one was unreachable.
+         *
+         * Surfaced rather than swallowed: a different narrator changes how the game reads, and a
+         * player who is not told will blame the model they thought they were using.
+         */
+        val servedByFallbackFrom: String? = null,
     ) : TurnOutcome
 
     /** The turn was not applied. The world is exactly as it was. */

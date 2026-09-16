@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 2,
-    "identityHash": "deae9be9155d089cb86ebb1f8df98f4b",
+    "identityHash": "7c68f364f8a7b769b5e4a7afd96a2d22",
     "entities": [
       {
         "tableName": "games",
@@ -1593,7 +1593,7 @@
       },
       {
         "tableName": "usage_records",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `gameId` TEXT, `turnId` TEXT, `timestampMs` INTEGER NOT NULL, `requestType` TEXT NOT NULL, `modelId` TEXT NOT NULL, `inputTokens` INTEGER NOT NULL, `outputTokens` INTEGER NOT NULL, `cachedTokens` INTEGER NOT NULL, `estimatedCostUsd` REAL NOT NULL, `latencyMs` INTEGER NOT NULL, `success` INTEGER NOT NULL, `retryCount` INTEGER NOT NULL, `errorKind` TEXT, PRIMARY KEY(`id`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `gameId` TEXT, `turnId` TEXT, `timestampMs` INTEGER NOT NULL, `requestType` TEXT NOT NULL, `modelId` TEXT NOT NULL, `providerId` TEXT NOT NULL, `inputTokens` INTEGER NOT NULL, `outputTokens` INTEGER NOT NULL, `cachedTokens` INTEGER NOT NULL, `estimatedCostUsd` REAL NOT NULL, `latencyMs` INTEGER NOT NULL, `success` INTEGER NOT NULL, `retryCount` INTEGER NOT NULL, `errorKind` TEXT, PRIMARY KEY(`id`))",
         "fields": [
           {
             "fieldPath": "id",
@@ -1626,6 +1626,12 @@
           {
             "fieldPath": "modelId",
             "columnName": "modelId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "providerId",
+            "columnName": "providerId",
             "affinity": "TEXT",
             "notNull": true
           },
@@ -1806,7 +1812,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'deae9be9155d089cb86ebb1f8df98f4b')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '7c68f364f8a7b769b5e4a7afd96a2d22')"
     ]
   }
 }

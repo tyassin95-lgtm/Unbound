@@ -17,6 +17,8 @@ import com.unbound.rpg.domain.CreationSpec
 import com.unbound.rpg.domain.GameCreator
 import com.unbound.rpg.domain.OpeningSuggestions
 import com.unbound.rpg.ui.saves.SaveSummary
+import com.unbound.rpg.data.ai.ProviderIds
+import com.unbound.rpg.ui.settings.ProviderUiState
 import com.unbound.rpg.ui.settings.SettingsUiState
 import com.unbound.rpg.ui.setup.NewGameDraft
 import kotlinx.coroutines.Dispatchers
@@ -64,18 +66,23 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
         viewModelScope.launch {
             container.settings.state.collect { s ->
                 _settings.update { it.copy(settings = s) }
+                // The routing provider reads this when a turn fails, so it has to track settings.
+                container.fallbackProviderId = s.fallbackProviderId
             }
         }
         refreshSaves()
         refreshCredentialState()
         // Show whatever is known offline immediately; a live fetch replaces it when asked.
-        _settings.update { it.copy(models = container.modelCatalog.knownProfiles()) }
+        _settings.update { state ->
+            state.copy(providers = state.providers.map { it.copy(models = offlineModels(it.id)) })
+        }
         refreshUsage()
         // Reclaim anything a crash or an older build left behind, once, at launch.
         viewModelScope.launch { runCatching { container.images.sweepOrphans() } }
     }
 
-    fun hasCredential(): Boolean = container.credentials.hasKey()
+    /** True when *any* provider can serve a turn — the app needs one key, not both. */
+    fun hasCredential(): Boolean = container.registry.available.any { container.credentialsFor(it.id).hasKey() }
 
     fun refreshSaves() = viewModelScope.launch {
         val list = container.store.listGames().map { game ->
@@ -88,14 +95,9 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
         _saves.value = list
     }
 
-    private fun refreshCredentialState() {
-        _settings.update { it.copy(maskedKey = container.credentials.maskedKey()) }
-    }
-
     fun refreshUsage() = viewModelScope.launch {
-        // Rolled up in SQL. Loading the most recent 2,000 records and adding them up was only a
-        // total until the 2,001st request, after which the screen understated what the player had
-        // actually spent — on their own key.
+        // Rolled up in SQL, per model and per provider. Loading the most recent 2,000 records and
+        // adding them up was only a total until the 2,001st request.
         val aggregates = container.store.usageByModel(null)
         val cacheBytes = container.images.cacheSizeBytes()
         _settings.update {
@@ -106,47 +108,136 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
-    // --- credential ---------------------------------------------------------------------------
-    fun storeKey(raw: String) {
-        container.credentials.storeKey(raw)
+    /** Rebuilds the per-provider view: who is configured, with what, and reachable. */
+    private fun refreshCredentialState() {
+        val rows = container.registry.available.map { info ->
+            val existing = _settings.value.provider(info.id)
+            (existing ?: ProviderUiState(info.id, info.displayName)).copy(
+                displayName = info.displayName,
+                maskedKey = container.credentialsFor(info.id).maskedKey(),
+            )
+        }
+        _settings.update { it.copy(providers = rows) }
+    }
+
+    private fun updateProvider(id: String, block: (ProviderUiState) -> ProviderUiState) {
+        _settings.update { state ->
+            state.copy(providers = state.providers.map { if (it.id == id) block(it) else it })
+        }
+    }
+
+    // --- credentials --------------------------------------------------------------------------
+    fun storeKey(providerId: String, raw: String) {
+        container.credentialsFor(providerId).storeKey(raw)
         refreshCredentialState()
-        _settings.update { it.copy(testResult = null, testSucceeded = null) }
+        updateProvider(providerId) { it.copy(testResult = null, testSucceeded = null) }
+        // A first key should leave the player able to play, not staring at an empty model list.
+        if (_settings.value.providers.count { it.connected } == 1) {
+            viewModelScope.launch { container.settings.setTextProvider(providerId) }
+        }
+        refreshModels(providerId)
     }
 
-    fun removeKey() {
-        container.credentials.clear()
+    fun removeKey(providerId: String) {
+        container.credentialsFor(providerId).clear()
         refreshCredentialState()
-        _settings.update { it.copy(testResult = null, testSucceeded = null, models = container.modelCatalog.knownProfiles()) }
+        updateProvider(providerId) {
+            it.copy(testResult = null, testSucceeded = null, models = offlineModels(providerId))
+        }
+        // Never leave the game pointing at a provider it can no longer reach, and never silently
+        // substitute one either: the choice moves to whatever key is still present, or nowhere.
+        val current = _settings.value
+        if (current.settings.textProviderId == providerId) {
+            current.providers.firstOrNull { it.connected }?.let { remaining ->
+                viewModelScope.launch { container.settings.setTextProvider(remaining.id) }
+            }
+        }
+        if (current.settings.fallbackProviderId == providerId) {
+            viewModelScope.launch { container.settings.setFallbackProvider(null) }
+        }
     }
 
-    fun testConnection() = viewModelScope.launch {
-        _settings.update { it.copy(testing = true, testResult = null, testSucceeded = null) }
-        val result = withContext(Dispatchers.IO) { container.provider.testConnection() }
-        _settings.update { it.copy(testing = false, testResult = result.message, testSucceeded = result.ok) }
-        if (result.ok) refreshModels()
+    fun testConnection(providerId: String) = viewModelScope.launch {
+        updateProvider(providerId) { it.copy(testing = true, testResult = null, testSucceeded = null) }
+        val provider = container.registry.providerOrNull(providerId)
+        if (provider == null) {
+            updateProvider(providerId) { it.copy(testing = false, testResult = "No such provider.", testSucceeded = false) }
+            return@launch
+        }
+        val result = withContext(Dispatchers.IO) { provider.testConnection() }
+        updateProvider(providerId) {
+            it.copy(testing = false, testResult = result.message, testSucceeded = result.ok)
+        }
+        if (result.ok) refreshModels(providerId)
     }
 
-    fun refreshModels() = viewModelScope.launch {
-        _settings.update { it.copy(loadingModels = true, modelError = null) }
-        val result = runCatching { withContext(Dispatchers.IO) { container.modelCatalog.listModels(forceRefresh = true) } }
+    /** What this vendor is known to offer without a network call, so a list is never blank. */
+    private fun offlineModels(providerId: String) = when (providerId) {
+        ProviderIds.GEMINI -> container.geminiCatalog.knownProfiles()
+        else -> container.modelCatalog.knownProfiles()
+    }
+
+    fun refreshModels(providerId: String) = viewModelScope.launch {
+        updateProvider(providerId) { it.copy(loadingModels = true, modelError = null) }
+        val result = runCatching {
+            withContext(Dispatchers.IO) {
+                when (providerId) {
+                    ProviderIds.GEMINI -> container.geminiCatalog.listModels(forceRefresh = true)
+                    else -> container.modelCatalog.listModels(forceRefresh = true)
+                }
+            }
+        }
         result.onSuccess { models ->
-            // Cost estimates should reflect the models this account actually has.
-            container.liveCostEstimator = CostEstimator(models.associateBy { it.id })
-            _settings.update { it.copy(loadingModels = false, models = models) }
+            updateProvider(providerId) { it.copy(loadingModels = false, models = models) }
+            rebuildPrices()
             refreshUsage()
-            // Pick a sensible default the first time, rather than leaving the player stuck.
-            if (_settings.value.settings.defaultTextModelId == null) {
+            // Pick a sensible default the first time, rather than leaving the player stuck. Only
+            // for the provider actually selected, and only when nothing is chosen yet: silently
+            // changing a model the player picked is exactly what §3 forbids.
+            val current = _settings.value
+            if (providerId == current.settings.textProviderId && current.settings.defaultTextModelId == null) {
                 models.firstOrNull { it.supportsStructuredOutput }?.let { setTextModel(it.id) }
             }
         }.onFailure { error ->
-            _settings.update {
+            updateProvider(providerId) {
                 it.copy(
                     loadingModels = false,
                     modelError = error.message ?: "Could not fetch the model list.",
-                    models = if (it.models.isEmpty()) container.modelCatalog.knownProfiles() else it.models,
+                    models = it.models.ifEmpty { offlineModels(providerId) },
                 )
             }
         }
+    }
+
+    /** Cost estimates should reflect the models each account actually has. */
+    private fun rebuildPrices() {
+        val state = _settings.value
+        container.liveCostEstimator = CostEstimator(
+            container.priceTableFrom(
+                openAi = state.provider(ProviderIds.OPENAI)?.models.orEmpty(),
+                gemini = state.provider(ProviderIds.GEMINI)?.models.orEmpty(),
+            ),
+        )
+    }
+
+    // --- provider choice ----------------------------------------------------------------------
+    fun setTextProvider(id: String) = viewModelScope.launch {
+        container.settings.setTextProvider(id)
+        // The model belongs to the old provider and almost certainly does not exist on the new
+        // one, so it is cleared rather than carried across and failing on the next turn.
+        container.settings.setTextModel(null)
+        refreshModels(id)
+    }
+
+    fun setImageProvider(id: String?) = viewModelScope.launch {
+        container.settings.setImageProvider(id)
+        container.settings.setImageModel(null)
+        id?.let { refreshModels(it) }
+    }
+
+    fun setFallbackProvider(id: String?) = viewModelScope.launch {
+        container.settings.setFallbackProvider(id)
+        container.fallbackProviderId = id
     }
 
     // --- settings -----------------------------------------------------------------------------
@@ -218,9 +309,9 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
             is CreationOutcome.Created -> {
                 refreshSaves()
                 refreshUsage()
-                outcome.openingWarning?.let { warning ->
-                    _settings.update { it.copy(modelError = warning) }
-                }
+                // The world exists and is playable; only the first paragraph failed. Said plainly
+                // where the player will see it rather than buried in a model list.
+                outcome.openingWarning?.let { _notice.value = it }
                 _createdGameId.value = outcome.game.id
             }
             is CreationOutcome.Failed -> Unit // the progress state already carries the failure
@@ -264,6 +355,8 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
             startingCurrency = draft.currencyAmount,
             startingPossessions = draft.startingPossessions,
             textModelId = model,
+            textProviderId = settings.textProviderId,
+            imageProviderId = settings.imageProviderId,
             imageModelId = settings.defaultImageModelId,
             imageMode = settings.imageMode,
             tone = draft.tone,

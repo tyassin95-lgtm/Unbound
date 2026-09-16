@@ -152,6 +152,7 @@ internal object Mappers {
         id = u.id, gameId = u.gameId, turnId = u.turnId, timestampMs = u.timestampMs,
         requestType = u.requestType.name, modelId = u.modelId, inputTokens = u.inputTokens,
         outputTokens = u.outputTokens, cachedTokens = u.cachedTokens, estimatedCostUsd = u.estimatedCostUsd,
+        providerId = u.providerId,
         latencyMs = u.latencyMs, success = u.success, retryCount = u.retryCount, errorKind = u.errorKind,
     )
     fun toUsage(e: UsageEntity) = UsageRecord(
@@ -159,6 +160,7 @@ internal object Mappers {
         requestType = RequestType.valueOf(e.requestType), modelId = e.modelId,
         inputTokens = e.inputTokens, outputTokens = e.outputTokens, cachedTokens = e.cachedTokens,
         estimatedCostUsd = e.estimatedCostUsd, latencyMs = e.latencyMs, success = e.success,
+        providerId = e.providerId,
         retryCount = e.retryCount, errorKind = e.errorKind,
     )
 }

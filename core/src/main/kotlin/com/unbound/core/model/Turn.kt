@@ -97,6 +97,8 @@ data class UsageRecord(
     val timestampMs: Long,
     val requestType: RequestType,
     val modelId: String,
+    /** Which vendor was billed. Costs are per provider, so they cannot be pooled by model alone. */
+    val providerId: String = "openai",
     val inputTokens: Int = 0,
     val outputTokens: Int = 0,
     val cachedTokens: Int = 0,

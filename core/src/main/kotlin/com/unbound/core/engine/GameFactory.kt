@@ -141,6 +141,8 @@ class GameFactory(
             narrationLength = request.narrationLength,
             limits = request.limits,
             textModelId = request.textModelId,
+            textProviderId = request.textProviderId,
+            imageProviderId = request.imageProviderId,
             imageModelId = request.imageModelId,
             imageMode = request.imageMode,
         )
@@ -315,6 +317,8 @@ data class NewGameRequest(
     /** Zero unless something decided otherwise. There is no default "starting money" in UNBOUND. */
     val startingCurrency: Long = 0,
     val textModelId: String,
+    val textProviderId: String = com.unbound.core.model.GameRecord.DEFAULT_PROVIDER_ID,
+    val imageProviderId: String? = null,
     val imageModelId: String? = null,
     val imageMode: ImageMode = ImageMode.ON_DEMAND,
     val tone: Tone? = null,

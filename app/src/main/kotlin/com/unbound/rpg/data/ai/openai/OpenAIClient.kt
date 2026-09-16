@@ -2,7 +2,7 @@ package com.unbound.rpg.data.ai.openai
 
 import com.unbound.core.ai.AIErrorKind
 import com.unbound.core.ai.AIException
-import com.unbound.rpg.data.security.SecureCredentialStore
+import com.unbound.rpg.data.security.CredentialSource
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -33,7 +33,7 @@ import kotlinx.serialization.json.jsonPrimitive
  * `GET /v1/models`, `POST /v1/images/generations` and `POST /v1/images/edits`.
  */
 class OpenAIClient(
-    private val credentials: SecureCredentialStore,
+    private val credentials: CredentialSource,
     private val baseUrl: String = DEFAULT_BASE_URL,
     httpClient: OkHttpClient? = null,
 ) {

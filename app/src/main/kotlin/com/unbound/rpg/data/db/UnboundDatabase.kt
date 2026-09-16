@@ -53,7 +53,7 @@ abstract class UnboundDatabase : RoomDatabase() {
          * the change is reviewable in the diff.
          */
         /**
-         * v1 -> v2: promises, debts and deals become durable state.
+         * v1 -> v2: promises, debts and deals become durable state, and usage learns whose it is.
          *
          * Purely additive. Everything a running campaign already holds — its world, people,
          * events, memories, knowledge, images and settings — is untouched, and the new continuity
@@ -85,6 +85,12 @@ abstract class UnboundDatabase : RoomDatabase() {
                 connection.execSQL("CREATE INDEX IF NOT EXISTS `index_commitments_gameId_status` ON `commitments` (`gameId`, `status`)")
                 connection.execSQL("CREATE INDEX IF NOT EXISTS `index_commitments_gameId_fromEntityId` ON `commitments` (`gameId`, `fromEntityId`)")
                 connection.execSQL("CREATE INDEX IF NOT EXISTS `index_commitments_gameId_toEntityId` ON `commitments` (`gameId`, `toEntityId`)")
+
+                // Costs are per vendor. Rows written before there was a choice were all OpenAI,
+                // which is what the default records — not a guess, the fact.
+                connection.execSQL(
+                    "ALTER TABLE `usage_records` ADD COLUMN `providerId` TEXT NOT NULL DEFAULT 'openai'",
+                )
             }
         }
 

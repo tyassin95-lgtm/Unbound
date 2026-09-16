@@ -49,6 +49,7 @@ class GameCreator(
                 WorldGenerationRequest(
                     premise = spec.premise,
                     modelId = spec.textModelId,
+                    providerId = spec.textProviderId,
                     characterName = spec.name,
                     characterAge = spec.age,
                     characterGender = spec.gender,
@@ -82,6 +83,7 @@ class GameCreator(
                 OpeningGenerationRequest(
                     seed = seed,
                     modelId = spec.textModelId,
+                    providerId = spec.textProviderId,
                     characterName = spec.name,
                     characterAge = spec.age,
                     characterGender = spec.gender,
@@ -147,6 +149,8 @@ class GameCreator(
                     startingPossessions = spec.startingPossessions,
                     narrationLength = spec.narrationLength,
                     textModelId = spec.textModelId,
+                    textProviderId = spec.textProviderId,
+                    imageProviderId = spec.imageProviderId,
                     imageModelId = spec.imageModelId,
                     imageMode = spec.imageMode,
                     tone = spec.tone,
@@ -231,6 +235,9 @@ data class CreationSpec(
     val startingCurrency: Long? = null,
     val startingPossessions: List<String> = emptyList(),
     val textModelId: String,
+    /** Which vendor this campaign will run on, fixed at creation and stored on the save. */
+    val textProviderId: String = com.unbound.core.model.GameRecord.DEFAULT_PROVIDER_ID,
+    val imageProviderId: String? = null,
     val imageModelId: String? = null,
     val imageMode: ImageMode = ImageMode.ON_DEMAND,
     val tone: Tone? = null,

@@ -83,6 +83,7 @@ class GameSession(
                     diagnostics = outcome.diagnostics,
                     rejected = outcome.issues.map { "${it.code}: ${it.detail}" },
                     playerDialogue = outcome.turn.playerDialogue,
+                    servedByFallbackFrom = outcome.servedByFallbackFrom,
                 )
             }
             is TurnOutcome.Replayed -> {
@@ -368,6 +369,8 @@ sealed interface SessionResult {
         val rejected: List<String>,
         /** Lines the protagonist spoke, so the renderer can colour their own words. */
         val playerDialogue: List<String> = emptyList(),
+        /** Set when a second provider stood in for this turn, so the player can be told. */
+        val servedByFallbackFrom: String? = null,
     ) : SessionResult
     data class Failed(val message: String, val kind: AIErrorKind, val retryable: Boolean) : SessionResult
     data class Undone(val turnNumber: Int, val turnsUndone: Int) : SessionResult

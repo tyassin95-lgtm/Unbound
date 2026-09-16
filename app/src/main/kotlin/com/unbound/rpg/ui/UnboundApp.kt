@@ -55,10 +55,11 @@ fun UnboundApp(container: AppContainer) {
                     appViewModel.markOnboarded()
                     navController.navigate(Routes.SAVES) { popUpTo(Routes.ONBOARDING) { inclusive = true } }
                 },
-                testing = settingsState.testing,
-                testResult = settingsState.testResult,
-                testSucceeded = settingsState.testSucceeded,
-                onTest = { appViewModel.testConnection() },
+                // Whichever provider onboarding is currently offering.
+                testing = settingsState.providers.any { it.testing },
+                testResult = settingsState.providers.firstNotNullOfOrNull { it.testResult },
+                testSucceeded = settingsState.providers.firstNotNullOfOrNull { it.testSucceeded },
+                onTest = { providerId -> appViewModel.testConnection(providerId) },
                 onContinue = {
                     appViewModel.markOnboarded()
                     navController.navigate(Routes.SETTINGS) { popUpTo(Routes.ONBOARDING) { inclusive = true } }
@@ -157,10 +158,13 @@ fun UnboundApp(container: AppContainer) {
                 onBack = { navController.popBackStack() },
                 onStoreKey = appViewModel::storeKey,
                 onRemoveKey = appViewModel::removeKey,
-                onTestKey = { appViewModel.testConnection() },
-                onRefreshModels = { appViewModel.refreshModels() },
+                onTestKey = appViewModel::testConnection,
+                onRefreshModels = appViewModel::refreshModels,
+                onPickProvider = appViewModel::setTextProvider,
+                onPickFallbackProvider = appViewModel::setFallbackProvider,
                 onPickTextModel = appViewModel::setTextModel,
                 onPickImageModel = appViewModel::setImageModel,
+                onPickImageProvider = appViewModel::setImageProvider,
                 onImageMode = appViewModel::setImageMode,
                 onNarrationLength = appViewModel::setNarrationLength,
                 onSuggestions = appViewModel::setSuggestions,

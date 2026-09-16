@@ -238,6 +238,8 @@ data class UsageTotals(
 /** One model, one request type: everything the cost estimate needs, already summed. */
 data class UsageAggregate(
     val modelId: String,
+    /** Costs are per vendor, so a rollup that pooled by model alone would mis-price. */
+    val providerId: String,
     val requestType: com.unbound.core.model.RequestType,
     val requests: Int,
     val inputTokens: Long,

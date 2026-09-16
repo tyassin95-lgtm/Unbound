@@ -237,7 +237,7 @@ class GeneratedWorldPlayableTest {
             factions = listOf(GeneratedFactionDto("order", "The Order", "Keeps the refuge.", listOf("Survive the winter"), "Respected, resented.")),
             threads = listOf(GeneratedThreadDto("The grain count", "The stores will not last.", "People starve by spring.", "SURVIVAL", "HIGH", listOf("auren"))),
         )
-        val seed = generator.sanitise(dto, WorldGenerationRequest("premise", "mock-story", "Odo", 38, "man"))
+        val seed = generator.sanitise(dto, WorldGenerationRequest("premise", "mock-story", characterName = "Odo", characterAge = 38, characterGender = "man"))
 
         val game = w.factory.createGame(
             NewGameRequest(

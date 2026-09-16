@@ -14,6 +14,11 @@ import com.unbound.core.save.SaveSystem
 import com.unbound.core.save.SnapshotService
 import com.unbound.rpg.data.ai.openai.OpenAIClient
 import com.unbound.rpg.data.ai.openai.OpenAIModelCatalog
+import com.unbound.rpg.data.ai.ProviderIds
+import com.unbound.rpg.data.ai.ProviderRegistry
+import com.unbound.rpg.data.ai.gemini.GeminiClient
+import com.unbound.rpg.data.ai.gemini.GeminiModelCatalog
+import com.unbound.rpg.data.ai.gemini.GeminiProvider
 import com.unbound.rpg.data.ai.openai.OpenAIProvider
 import com.unbound.rpg.data.db.RoomWorldStore
 import com.unbound.rpg.data.db.UnboundDatabase
@@ -48,12 +53,46 @@ class AppContainer(
     val database: UnboundDatabase by lazy { databaseOverride ?: UnboundDatabase.get(appContext) }
     val store: WorldStore by lazy { RoomWorldStore(database) }
 
-    val credentials: SecureCredentialStore by lazy { SecureCredentialStore(appContext) }
+    /** One credential store per vendor: revoking or replacing one must not disturb the other. */
+    val credentials: SecureCredentialStore by lazy { SecureCredentialStore(appContext, ProviderIds.OPENAI) }
+    val geminiCredentials: SecureCredentialStore by lazy { SecureCredentialStore(appContext, ProviderIds.GEMINI) }
+
+    fun credentialsFor(providerId: String): SecureCredentialStore =
+        if (providerId == ProviderIds.GEMINI) geminiCredentials else credentials
+
     val settings: AppSettings by lazy { AppSettings(appContext) }
 
     private val openAIClient: OpenAIClient by lazy { OpenAIClient(credentials) }
     val modelCatalog: OpenAIModelCatalog by lazy { OpenAIModelCatalog(openAIClient) }
-    val provider: AIProvider by lazy { providerOverride ?: OpenAIProvider(openAIClient, modelCatalog) }
+    private val openAIProvider: AIProvider by lazy { OpenAIProvider(openAIClient, modelCatalog) }
+
+    private val geminiClient: GeminiClient by lazy { GeminiClient(geminiCredentials) }
+    val geminiCatalog: GeminiModelCatalog by lazy { GeminiModelCatalog(geminiClient) }
+    private val geminiProvider: AIProvider by lazy { GeminiProvider(geminiClient, geminiCatalog) }
+
+    val registry: ProviderRegistry by lazy {
+        ProviderRegistry(
+            providers = mapOf(
+                ProviderIds.OPENAI to openAIProvider,
+                ProviderIds.GEMINI to geminiProvider,
+            ),
+            defaultProviderId = ProviderIds.OPENAI,
+        )
+    }
+
+    /**
+     * What the engine sees: one provider, which routes on the id each request carries.
+     *
+     * The fallback is opt-in and only covers a provider being unreachable — never a refusal, a bad
+     * key or an exhausted account, because those would fail the same way twice or succeed in a way
+     * the player did not ask for.
+     */
+    val provider: AIProvider by lazy {
+        providerOverride ?: registry.routing(fallbackProviderId = fallbackProviderId)
+    }
+
+    /** Set from settings at startup and whenever the player changes it. */
+    @Volatile var fallbackProviderId: String? = null
 
     val gameFactory: GameFactory by lazy { GameFactory(store, clock, idFactory) }
     val worldGenerator: WorldGenerator by lazy { WorldGenerator(provider) }
@@ -65,8 +104,34 @@ class AppContainer(
     val snapshots: SnapshotService by lazy { SnapshotService(store, clock, idFactory) }
     val images: ImageService by lazy { ImageService(appContext, store, provider, clock, idFactory) }
 
-    val costEstimator: CostEstimator by lazy {
-        CostEstimator(modelCatalog.knownProfiles().associateBy { it.id })
+    /**
+     * Prices for both vendors, keyed by "provider/model" as well as bare model id.
+     *
+     * Two vendors ship models with overlapping names, so pooling on the bare id alone would price
+     * one of them with the other's rates. The bare key stays as a fallback for rows written before
+     * usage recorded a provider.
+     */
+    val costEstimator: CostEstimator by lazy { CostEstimator(offlinePriceTable()) }
+
+    private fun offlinePriceTable(): Map<String, com.unbound.core.ai.ModelProfile> = buildMap {
+        modelCatalog.knownProfiles().forEach {
+            put("${ProviderIds.OPENAI}/${it.id}", it)
+            putIfAbsent(it.id, it)
+        }
+        geminiCatalog.knownProfiles().forEach {
+            put("${ProviderIds.GEMINI}/${it.id}", it)
+            putIfAbsent(it.id, it)
+        }
+    }
+
+    /** Rebuilt from a live listing so estimates reflect what the account actually has. */
+    fun priceTableFrom(
+        openAi: List<com.unbound.core.ai.ModelProfile>,
+        gemini: List<com.unbound.core.ai.ModelProfile>,
+    ): Map<String, com.unbound.core.ai.ModelProfile> = buildMap {
+        putAll(offlinePriceTable())
+        openAi.forEach { put("${ProviderIds.OPENAI}/${it.id}", it); put(it.id, it) }
+        gemini.forEach { put("${ProviderIds.GEMINI}/${it.id}", it); putIfAbsent(it.id, it) }
     }
 
     /** Rebuilt after a live model fetch so cost estimates reflect what the account actually has. */

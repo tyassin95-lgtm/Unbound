@@ -300,6 +300,7 @@ class RoomWorldStore(private val db: UnboundDatabase) : WorldStore {
         db.usage().byModel(gameId).map { row ->
             com.unbound.core.engine.UsageAggregate(
                 modelId = row.modelId,
+                providerId = row.providerId,
                 requestType = com.unbound.core.model.RequestType.valueOf(row.requestType),
                 requests = row.requests,
                 inputTokens = row.inputTokens,

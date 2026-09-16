@@ -11,10 +11,19 @@ import com.unbound.core.model.UsageRecord
  * provider's own dashboard is authoritative for billing; pretending otherwise would be a lie the
  * app cannot back up, since it cannot see discounts, tiers or free credits.
  */
-class CostEstimator(private val catalog: Map<String, ModelProfile>) {
+class CostEstimator(
+    /**
+     * Keyed by model id. Two vendors can and do ship models with overlapping names, so a rollup
+     * carries the provider and [priceKey] combines the two before looking a price up.
+     */
+    private val catalog: Map<String, ModelProfile>,
+) {
+    private fun profile(modelId: String, providerId: String?): ModelProfile? =
+        catalog["$providerId/$modelId"] ?: catalog[modelId]
+
 
     fun estimate(record: UsageRecord): Double {
-        val profile = catalog[record.modelId] ?: return 0.0
+        val profile = profile(record.modelId, record.providerId) ?: return 0.0
         return if (record.requestType == RequestType.IMAGE) {
             profile.imageCostEach ?: 0.0
         } else {
@@ -55,7 +64,7 @@ class CostEstimator(private val catalog: Map<String, ModelProfile>) {
 
         val turns = aggregates.filter { it.requestType == RequestType.NARRATIVE_TURN }
         fun cost(a: UsageAggregate): Double {
-            val profile = catalog[a.modelId] ?: return 0.0
+            val profile = profile(a.modelId, a.providerId) ?: return 0.0
             return if (a.requestType == RequestType.IMAGE) {
                 (profile.imageCostEach ?: 0.0) * a.requests
             } else {

@@ -119,6 +119,8 @@ class ImageService(
         canonical: ImageRecord?,
         appearanceVersion: Int,
     ): ImageOutcome = withContext(Dispatchers.IO) {
+        val imageProviderId = store.getGame(gameId)?.let { it.imageProviderId ?: it.textProviderId }
+
         // Never pay twice for the same picture (§60).
         val cached = store.imagesFor(gameId, entityId).firstOrNull { record ->
             record.prompt == prompt.prompt &&
@@ -138,13 +140,23 @@ class ImageService(
 
         val response = try {
             provider.generateImage(
-                AIImageRequest(modelId = modelId, prompt = prompt.prompt, referenceImage = referenceBytes),
+                AIImageRequest(
+                    modelId = modelId,
+                    // Pictures follow their own provider, defaulting to whoever tells the story.
+                    // A canonical reference image is a file on the device and belongs to the
+                    // character, not to a vendor, so switching provider keeps a face.
+                    providerId = imageProviderId,
+                    prompt = prompt.prompt,
+                    referenceImage = referenceBytes,
+                ),
             )
         } catch (e: AIException) {
             store.recordUsage(
                 UsageRecord(
                     id = idFactory(), gameId = gameId, turnId = null, timestampMs = clock(),
-                    requestType = RequestType.IMAGE, modelId = modelId, success = false, errorKind = e.kind.name,
+                    requestType = RequestType.IMAGE, modelId = modelId,
+                    providerId = imageProviderId ?: "openai",
+                    success = false, errorKind = e.kind.name,
                 ),
             )
             return@withContext ImageOutcome.Failed(e.message)
@@ -173,6 +185,7 @@ class ImageService(
             UsageRecord(
                 id = idFactory(), gameId = gameId, turnId = null, timestampMs = clock(),
                 requestType = RequestType.IMAGE, modelId = response.modelId,
+                providerId = imageProviderId ?: "openai",
                 latencyMs = response.latencyMs, success = true,
             ),
         )

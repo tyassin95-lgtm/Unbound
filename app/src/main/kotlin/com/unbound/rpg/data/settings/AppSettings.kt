@@ -27,6 +27,11 @@ class AppSettings(context: Context) {
     val state: Flow<SettingsState> = store.data.map { prefs -> prefs.toState() }
 
     private fun Preferences.toState() = SettingsState(
+        // Defaults to OpenAI because that is what an existing install is already using; a stored
+        // model id means nothing without knowing whose it is.
+        textProviderId = this[KEY_TEXT_PROVIDER] ?: "openai",
+        imageProviderId = this[KEY_IMAGE_PROVIDER],
+        fallbackProviderId = this[KEY_FALLBACK_PROVIDER],
         defaultTextModelId = this[KEY_TEXT_MODEL],
         defaultImageModelId = this[KEY_IMAGE_MODEL],
         imageMode = this[KEY_IMAGE_MODE]?.let { runCatching { ImageMode.valueOf(it) }.getOrNull() } ?: ImageMode.ON_DEMAND,
@@ -37,6 +42,12 @@ class AppSettings(context: Context) {
         personalLimits = this[KEY_LIMITS]?.lines()?.filter { it.isNotBlank() } ?: emptyList(),
         onboardingComplete = this[KEY_ONBOARDED] ?: false,
     )
+
+    suspend fun setTextProvider(id: String) = put(KEY_TEXT_PROVIDER, id)
+    suspend fun setImageProvider(id: String?) = put(KEY_IMAGE_PROVIDER, id)
+
+    /** Null switches fallback off. Opt-in, because a substitution changes how the game reads. */
+    suspend fun setFallbackProvider(id: String?) = put(KEY_FALLBACK_PROVIDER, id)
 
     suspend fun setTextModel(id: String?) = put(KEY_TEXT_MODEL, id)
     suspend fun setImageModel(id: String?) = put(KEY_IMAGE_MODEL, id)
@@ -53,6 +64,9 @@ class AppSettings(context: Context) {
     }
 
     private companion object {
+        val KEY_TEXT_PROVIDER = stringPreferencesKey("text_provider")
+        val KEY_IMAGE_PROVIDER = stringPreferencesKey("image_provider")
+        val KEY_FALLBACK_PROVIDER = stringPreferencesKey("fallback_provider")
         val KEY_TEXT_MODEL = stringPreferencesKey("text_model")
         val KEY_IMAGE_MODEL = stringPreferencesKey("image_model")
         val KEY_IMAGE_MODE = stringPreferencesKey("image_mode")
@@ -66,6 +80,15 @@ class AppSettings(context: Context) {
 }
 
 data class SettingsState(
+    /** Which vendor new campaigns use for the story. */
+    val textProviderId: String = "openai",
+    /** Null means "the same one as the story", which is what most players will want. */
+    val imageProviderId: String? = null,
+    /**
+     * A second vendor to try when the first is unreachable. Null is off, and off is the default:
+     * a silent substitution would change how the game reads without the player asking for it.
+     */
+    val fallbackProviderId: String? = null,
     val defaultTextModelId: String? = null,
     val defaultImageModelId: String? = null,
     val imageMode: ImageMode = ImageMode.ON_DEMAND,

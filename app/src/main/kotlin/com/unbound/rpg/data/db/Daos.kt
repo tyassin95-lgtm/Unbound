@@ -335,6 +335,7 @@ interface UsageDao {
     @Query(
         """
         SELECT modelId,
+               providerId,
                requestType,
                COUNT(*) AS requests,
                COALESCE(SUM(inputTokens), 0) AS inputTokens,
@@ -344,7 +345,7 @@ interface UsageDao {
                COALESCE(SUM(latencyMs), 0) AS totalLatencyMs
         FROM usage_records
         WHERE (:gameId IS NULL OR gameId = :gameId)
-        GROUP BY modelId, requestType
+        GROUP BY modelId, providerId, requestType
         """,
     )
     suspend fun byModel(gameId: String?): List<UsageByModelRow>
@@ -363,6 +364,7 @@ data class UsageTotalsRow(
 
 data class UsageByModelRow(
     val modelId: String,
+    val providerId: String,
     val requestType: String,
     val requests: Int,
     val inputTokens: Long,

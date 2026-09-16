@@ -23,6 +23,14 @@ data class AIUsage(
  */
 data class AITextRequest(
     val modelId: String,
+    /**
+     * Which vendor should serve this, as an opaque string read from the save.
+     *
+     * The engine never interprets it — it does not know that an "openai" exists — but carrying it
+     * on the request is what lets one campaign run on one provider while another runs on a second,
+     * without the pipeline holding a provider per game or the engine importing a vendor.
+     */
+    val providerId: String? = null,
     val stableSystemPrompt: String,
     val dynamicContext: String,
     val userInput: String,
@@ -39,10 +47,21 @@ data class AITextResponse(
     val modelId: String,
     val latencyMs: Long = 0,
     val finishedEarly: Boolean = false,
+    /** Which vendor actually served it — not necessarily the one asked, if a fallback stepped in. */
+    val providerId: String? = null,
+    /**
+     * Set when the request was served by a provider other than the one selected.
+     *
+     * Carried through to the turn record so the player can be told plainly. A silent substitution
+     * would change how the game reads and leave them wondering why.
+     */
+    val servedByFallbackFrom: String? = null,
 )
 
 data class AIImageRequest(
     val modelId: String,
+    /** As [AITextRequest.providerId]. A story model and an image model are separate choices. */
+    val providerId: String? = null,
     val prompt: String,
     val size: String = "1024x1024",
     /** Bytes of a canonical reference image, when the provider supports reference-preserving edits. */

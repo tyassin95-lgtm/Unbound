@@ -399,11 +399,12 @@ class InMemoryWorldStore : WorldStore {
 
     override suspend fun usageByModel(gameId: String?): List<com.unbound.core.engine.UsageAggregate> =
         usage.filter { gameId == null || it.gameId == gameId }
-            .groupBy { it.modelId to it.requestType }
+            .groupBy { Triple(it.modelId, it.providerId, it.requestType) }
             .map { (key, rows) ->
                 com.unbound.core.engine.UsageAggregate(
                     modelId = key.first,
-                    requestType = key.second,
+                    providerId = key.second,
+                    requestType = key.third,
                     requests = rows.size,
                     inputTokens = rows.sumOf { it.inputTokens.toLong() },
                     outputTokens = rows.sumOf { it.outputTokens.toLong() },

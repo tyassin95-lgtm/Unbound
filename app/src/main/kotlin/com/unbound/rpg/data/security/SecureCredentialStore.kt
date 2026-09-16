@@ -11,7 +11,7 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
 /**
- * Where the player's OpenAI key lives, and everywhere it does not (§4).
+ * Where a provider's key lives, and everywhere it does not (§4).
  *
  * The raw key is encrypted with an AES-256-GCM key that is generated inside the Android Keystore
  * and is **not extractable** — the app can ask the Keystore to decrypt, but can never read the
@@ -25,18 +25,36 @@ import javax.crypto.spec.GCMParameterSpec
  * The ciphertext file is excluded from cloud backup and device transfer by
  * `res/xml/data_extraction_rules.xml`, so the key does not silently travel to a new device.
  */
-class SecureCredentialStore(context: Context) {
+class SecureCredentialStore(
+    context: Context,
+    /**
+     * Which provider's key this store holds.
+     *
+     * Each provider gets its own ciphertext file *and* its own non-extractable Keystore key, so
+     * revoking one credential cannot reveal or disturb another, and clearing one leaves the other
+     * working. A single shared blob would have meant re-entering both keys to change either.
+     */
+    private val providerId: String = DEFAULT_PROVIDER,
+) : CredentialSource {
 
     private val appContext = context.applicationContext
-    private val file = File(appContext.filesDir, FILE_NAME)
+    // The original single-provider install wrote `credential.bin` under `unbound.credential.v1`.
+    // OpenAI keeps those names so an existing player's key is still there after the upgrade;
+    // anything added later is namespaced.
+    private val file = File(
+        appContext.filesDir,
+        if (providerId == DEFAULT_PROVIDER) "credential.bin" else "credential.$providerId.bin",
+    )
+    private val keyAlias =
+        if (providerId == DEFAULT_PROVIDER) "unbound.credential.v1" else "unbound.credential.$providerId.v1"
 
-    fun hasKey(): Boolean = file.exists() && file.length() > IV_LENGTH
+    override fun hasKey(): Boolean = file.exists() && file.length() > IV_LENGTH
 
     /**
      * The only accessor that returns plaintext. Callers must use it and discard it — never store
      * the result in a field, a log, or any object that could be serialized.
      */
-    fun readKey(): String? {
+    override fun readKey(): String? {
         if (!hasKey()) return null
         return try {
             val blob = file.readBytes()
@@ -61,7 +79,7 @@ class SecureCredentialStore(context: Context) {
         val cipherText = cipher.doFinal(rawKey.trim().toByteArray(Charsets.UTF_8))
         // Written atomically so an interrupted write cannot leave a half-file that decrypts to
         // garbage and gets silently cleared on next launch.
-        val tmp = File(appContext.filesDir, "$FILE_NAME.tmp")
+        val tmp = File(appContext.filesDir, "${file.name}.tmp")
         tmp.writeBytes(cipher.iv + cipherText)
         if (!tmp.renameTo(file)) {
             file.writeBytes(tmp.readBytes())
@@ -87,11 +105,11 @@ class SecureCredentialStore(context: Context) {
 
     private fun secretKey(): SecretKey {
         val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
-        (keyStore.getEntry(KEY_ALIAS, null) as? KeyStore.SecretKeyEntry)?.let { return it.secretKey }
+        (keyStore.getEntry(keyAlias, null) as? KeyStore.SecretKeyEntry)?.let { return it.secretKey }
 
         val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
         generator.init(
-            KeyGenParameterSpec.Builder(KEY_ALIAS, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
+            KeyGenParameterSpec.Builder(keyAlias, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
                 .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
                 .setKeySize(256)
@@ -106,18 +124,26 @@ class SecureCredentialStore(context: Context) {
 
     companion object {
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
-        private const val KEY_ALIAS = "unbound.credential.v1"
         private const val TRANSFORMATION = "AES/GCM/NoPadding"
-        private const val FILE_NAME = "credential.bin"
+        const val DEFAULT_PROVIDER = "openai"
         private const val IV_LENGTH = 12
         private const val TAG_BITS = 128
 
-        /** Shows enough to recognise which key is stored, and not enough to use it. */
+        /**
+         * Shows enough to recognise which key is stored, and not enough to use it.
+         *
+         * The visible head is the vendor's own prefix where there is one — `sk-` for OpenAI,
+         * `AIza` for Google — because that is what tells a player which key they are looking at.
+         */
         fun mask(key: String): String {
             val trimmed = key.trim()
             if (trimmed.length <= 10) return "•".repeat(trimmed.length.coerceAtLeast(8))
-            val head = trimmed.take(if (trimmed.startsWith("sk-")) 6 else 3)
-            return head + "•".repeat(16) + trimmed.takeLast(4)
+            val head = when {
+                trimmed.startsWith("sk-") -> 6
+                trimmed.startsWith("AIza") -> 6
+                else -> 3
+            }
+            return trimmed.take(head) + "•".repeat(16) + trimmed.takeLast(4)
         }
     }
 }
