@@ -17,6 +17,8 @@ import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import kotlinx.coroutines.Dispatchers
@@ -320,10 +322,42 @@ private fun DiagnosticsStrip(entry: SceneEntry.Narration) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                "memories ${d.retrievedMemoryIds.size} · events ${d.retrievedEventIds.size}",
+                "${d.providerId ?: "?"} / ${d.modelId ?: "?"} · memories ${d.retrievedMemoryIds.size} · " +
+                    "events ${d.retrievedEventIds.size} · transcript ${d.transcriptTurns} turns · " +
+                    "obligations ${d.openCommitments}",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            if (d.npcKnowledgeCounts.isNotEmpty()) {
+                Text(
+                    "knows: " + d.npcKnowledgeCounts.entries.joinToString(", ") { "${it.key} ${it.value}" },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            // What the model was actually given. A continuity failure is nearly always something
+            // that was not retrieved, which no record of what changed can show.
+            if (d.contextSections.isNotEmpty()) {
+                var expanded by remember { mutableStateOf(false) }
+                TextButton(onClick = { expanded = !expanded }, contentPadding = PaddingValues(0.dp)) {
+                    Text(if (expanded) "Hide what was sent" else "What was sent", style = MaterialTheme.typography.labelSmall)
+                }
+                if (expanded) {
+                    Text(
+                        d.contextSections.joinToString("\n") { "· $it" },
+                        style = MaterialTheme.typography.labelSmall,
+                        fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (d.retrievedMemories.isNotEmpty()) {
+                        Text(
+                            "\nremembered:\n" + d.retrievedMemories.joinToString("\n") { "· ${it.take(120)}" },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
             entry.rejected.forEach { issue ->
                 Text(issue, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
             }

@@ -231,6 +231,24 @@ class TurnPipeline(
         )
     }
 
+    /** Section headings and their weight, so a missing section is visible at a glance. */
+    private fun sectionsOf(context: String): List<String> {
+        val result = mutableListOf<String>()
+        var title: String? = null
+        var lines = 0
+        context.lineSequence().forEach { line ->
+            if (line.startsWith("## ")) {
+                title?.let { result += "$it ($lines)" }
+                title = line.removePrefix("## ")
+                lines = 0
+            } else if (line.isNotBlank()) {
+                lines++
+            }
+        }
+        title?.let { result += "$it ($lines)" }
+        return result
+    }
+
     private suspend fun commit(
         game: GameRecord,
         world: WorldRecord,
@@ -1054,6 +1072,17 @@ class TurnPipeline(
                 retrievedMemoryIds = assembly.context.retrieved.memoryIds,
                 retrievedEventIds = assembly.context.retrieved.eventIds,
                 contextCharacters = assembly.contextLength,
+                contextSections = sectionsOf(assembly.dynamicContext),
+                retrievedMemories = assembly.context.retrieved.memories.map { it.memory.text },
+                retrievedEvents = assembly.context.retrieved.recentEvents.map { it.summary },
+                npcKnowledgeCounts = assembly.context.npcKnowledge.entries.associate { (id, facts) ->
+                    (assembly.context.relevantNpcs.firstOrNull { it.id == id }?.name ?: id) to facts.size
+                },
+                openCommitments = assembly.context.commitments.size,
+                transcriptTurns = assembly.context.recentTurns.size,
+                providerId = usage.providerId ?: game.textProviderId,
+                modelId = usage.modelId,
+                context = assembly.dynamicContext.takeIf { config.captureContext },
                 inputTokens = usage.usage.inputTokens,
                 outputTokens = usage.usage.outputTokens,
                 cachedTokens = usage.usage.cachedInputTokens,
@@ -1143,12 +1172,45 @@ data class PipelineConfig(
     val maxTimeAdvanceMinutes: Int = 60 * 24 * 14,
     val snapshotEveryTurns: Int = 15,
     val consolidateEveryTurns: Int = 25,
+    /**
+     * Keeps the assembled context on each turn's diagnostics.
+     *
+     * Off by default because it holds a few kilobytes per turn in memory for no benefit to a
+     * player. On, it is the only way to answer "why did the world forget that?" — the question
+     * every other diagnostic only circles around.
+     */
+    val captureContext: Boolean = false,
 )
 
+/**
+ * Enough to tell why a turn went the way it did (§26).
+ *
+ * Deliberately includes what was *rejected* and what was *retrieved*, not only what was applied:
+ * a continuity failure is almost always something that was not retrieved or something that was
+ * thrown out, and neither shows up in a record of what changed.
+ *
+ * Carries no credential and no key, ever.
+ */
 data class TurnDiagnostics(
     val retrievedMemoryIds: List<String>,
     val retrievedEventIds: List<String>,
     val contextCharacters: Int,
+    /** Section headings actually included this turn, in order, with how many lines each carried. */
+    val contextSections: List<String> = emptyList(),
+    /** The memories that reached the model, in the order they were ranked. */
+    val retrievedMemories: List<String> = emptyList(),
+    /** Events sent as history, newest last. */
+    val retrievedEvents: List<String> = emptyList(),
+    /** How many facts each character in the scene was given. */
+    val npcKnowledgeCounts: Map<String, Int> = emptyMap(),
+    /** Obligations the turn was told about. */
+    val openCommitments: Int = 0,
+    /** How many turns of transcript were included. */
+    val transcriptTurns: Int = 0,
+    val providerId: String? = null,
+    val modelId: String? = null,
+    /** The whole assembled context, when [PipelineConfig.captureContext] is on. */
+    val context: String? = null,
     val inputTokens: Int,
     val outputTokens: Int,
     val cachedTokens: Int,
