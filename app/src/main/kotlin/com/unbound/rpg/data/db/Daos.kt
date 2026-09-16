@@ -84,6 +84,8 @@ interface ItemDao {
     @Query("DELETE FROM items WHERE gameId = :gameId") suspend fun clearGame(gameId: String)
     @Query("SELECT * FROM items WHERE id = :id AND gameId = :gameId") suspend fun get(gameId: String, id: String): ItemEntity?
     @Query("SELECT * FROM items WHERE gameId = :gameId AND ownerId = :ownerId AND destroyed = 0") suspend fun ownedBy(gameId: String, ownerId: String): List<ItemEntity>
+    @Query("SELECT * FROM items WHERE gameId = :gameId AND ownerId IN (:ownerIds) AND destroyed = 0")
+    suspend fun ownedByAny(gameId: String, ownerIds: Collection<String>): List<ItemEntity>
     @Query("SELECT * FROM items WHERE gameId = :gameId AND locationId = :locationId") suspend fun at(gameId: String, locationId: String): List<ItemEntity>
     @Query("SELECT * FROM items WHERE gameId = :gameId LIMIT :limit") suspend fun all(gameId: String, limit: Int): List<ItemEntity>
     @Upsert suspend fun upsertAll(items: Collection<ItemEntity>)

@@ -42,8 +42,8 @@ object TurnSchema {
             put("memory_candidates", arraySchema(memorySchema()))
             put("thread_changes", arraySchema(threadSchema()))
             put("npc_actions", arraySchema(npcActionSchema()))
-            put("world_changes", arraySchema(worldChangeSchema()))
             put("new_characters", arraySchema(newCharacterSchema()))
+            put("commitment_changes", arraySchema(commitmentSchema()))
             putJsonObject("player_dialogue") {
                 put("type", "array")
                 put(
@@ -75,7 +75,8 @@ object TurnSchema {
             listOf(
                 "narrative", "time_advance_minutes", "scene_is_significant", "events", "state_changes",
                 "knowledge_changes", "relationship_changes", "memory_candidates", "thread_changes",
-                "npc_actions", "world_changes", "new_characters", "player_dialogue", "present_character_ids", "suggested_actions",
+                "npc_actions", "new_characters", "commitment_changes", "player_dialogue",
+                "present_character_ids", "suggested_actions",
             ).forEach { add(it) }
         }
     }
@@ -264,14 +265,27 @@ object TurnSchema {
         },
     )
 
-    private fun worldChangeSchema() = obj(
-        listOf("type", "location_id", "faction_id", "value", "description"),
+    private fun commitmentSchema() = obj(
+        listOf("action", "kind", "commitment_id", "from_entity_id", "to_entity_id", "terms", "amount", "due_in_hours", "importance"),
         buildJsonObject {
-            put("type", str("", listOf("WEATHER", "LOCATION_STATE", "FACTION_STATE", "ECONOMY", "OTHER")))
-            put("location_id", nullableStr())
-            put("faction_id", nullableStr())
-            put("value", str())
-            put("description", str())
+            put(
+                "action",
+                str(
+                    "MADE when someone takes on a new obligation this turn. KEPT, BROKEN, FORGIVEN " +
+                        "or VOID when one already listed under obligations is settled, betrayed, " +
+                        "released or overtaken by events.",
+                    listOf("MADE", "KEPT", "BROKEN", "FORGIVEN", "VOID"),
+                ),
+            )
+            put("kind", str("Ignored when closing an existing obligation.", listOf("PROMISE", "DEBT", "DEAL", "THREAT", "OATH")))
+            put("commitment_id", nullableStr("Required when closing: the id shown in the obligations section."))
+            put("from_entity_id", nullableStr("Who owes. Use 'player' for the protagonist."))
+            put("to_entity_id", nullableStr("Who is owed."))
+            put("terms", str("What was undertaken, in plain words a person would use."))
+            put("amount", int("Only for a DEBT. Zero otherwise."))
+            put("due_in_hours", int("Hours from now, when there is a deadline. Zero for open-ended."))
+            put("importance", str("", listOf("TRIVIAL", "LOW", "MEDIUM", "HIGH", "CRITICAL")))
         },
     )
+
 }

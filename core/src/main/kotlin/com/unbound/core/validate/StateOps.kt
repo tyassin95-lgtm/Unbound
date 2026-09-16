@@ -48,6 +48,8 @@ data class ValidationResult(
     val events: List<EventDto> = emptyList(),
     /** NPC actions that may be applied. */
     val npcActions: List<NpcActionDto> = emptyList(),
+    /** Obligations opened or closed, with the impossible ones removed. */
+    val commitmentChanges: List<CommitmentChangeDto> = emptyList(),
 ) {
     val hasFatal: Boolean get() = issues.any { it.fatal }
     val rejectedCount: Int get() = issues.size

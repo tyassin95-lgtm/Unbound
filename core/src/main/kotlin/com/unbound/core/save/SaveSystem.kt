@@ -40,9 +40,15 @@ data class SaveBundle(
     val turns: List<TurnRecord>,
     /** Metadata only — image bytes stay on the device that made them. */
     val images: List<ImageRecord>,
+    /**
+     * Promises, debts and deals. Defaulted so a save written by format 1 still imports: an older
+     * campaign simply arrives with no obligations recorded, which is true of it.
+     */
+    val commitments: List<com.unbound.core.continuity.CommitmentRecord> = emptyList(),
 ) {
     companion object {
-        const val FORMAT_VERSION = 1
+        /** 2 added commitments. Bundles at version 1 still import; the field defaults to empty. */
+        const val FORMAT_VERSION = 2
     }
 }
 
@@ -73,6 +79,7 @@ class SaveSystem(private val store: WorldStore, private val clock: () -> Long, p
             threads = store.allThreads(gameId, 20_000),
             relationships = store.allRelationships(gameId),
             knowledge = store.allKnowledge(gameId),
+            commitments = store.allCommitments(gameId),
             rumors = store.allRumors(gameId),
             memories = store.allMemories(gameId),
             summaries = store.summaries(gameId, 500),
@@ -209,6 +216,18 @@ class SaveSystem(private val store: WorldStore, private val clock: () -> Long, p
                     subjectEntityIds = ids(it.subjectEntityIds),
                     learnedFromEventId = id(it.learnedFromEventId),
                     sourceEntityId = id(it.sourceEntityId),
+                )
+            },
+        )
+        store.upsertCommitments(
+            bundle.commitments.map {
+                it.copy(
+                    id = idFactory(), gameId = newGameId,
+                    fromEntityId = id(it.fromEntityId)!!,
+                    toEntityId = id(it.toEntityId)!!,
+                    originEventId = id(it.originEventId),
+                    resolutionEventId = id(it.resolutionEventId),
+                    relatedThreadId = id(it.relatedThreadId),
                 )
             },
         )

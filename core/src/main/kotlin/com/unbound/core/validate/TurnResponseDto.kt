@@ -27,7 +27,6 @@ data class TurnResponseDto(
     @SerialName("memory_candidates") val memoryCandidates: List<MemoryCandidateDto> = emptyList(),
     @SerialName("thread_changes") val threadChanges: List<ThreadChangeDto> = emptyList(),
     @SerialName("npc_actions") val npcActions: List<NpcActionDto> = emptyList(),
-    @SerialName("world_changes") val worldChanges: List<WorldChangeDto> = emptyList(),
     @SerialName("new_characters") val newCharacters: List<NewCharacterDto> = emptyList(),
     @SerialName("suggested_actions") val suggestedActions: List<String> = emptyList(),
     @SerialName("scene_is_significant") val sceneIsSignificant: Boolean = false,
@@ -47,7 +46,49 @@ data class TurnResponseDto(
      * directly rather than guessed at from stored locations. See [ScenePresence].
      */
     @SerialName("present_character_ids") val presentCharacterIds: List<String> = emptyList(),
+    /**
+     * Promises made, debts incurred, deals struck — and the settling or breaking of ones already
+     * open. Reported separately from events because an obligation is *state*: it stays true, and
+     * keeps being consulted, long after the event that created it has scrolled out of every
+     * retrieval window.
+     */
+    @SerialName("commitment_changes") val commitmentChanges: List<CommitmentChangeDto> = emptyList(),
 )
+
+@Serializable
+data class CommitmentChangeDto(
+    /** MADE to open a new one; KEPT, BROKEN, FORGIVEN or VOID to close an existing one. */
+    val action: String = "MADE",
+    /** PROMISE, DEBT, DEAL, THREAT or OATH. Ignored when closing. */
+    val kind: String = "PROMISE",
+    /** Required when closing: the id from the obligations section of the context. */
+    @SerialName("commitment_id") val commitmentId: String? = null,
+    @SerialName("from_entity_id") val fromEntityId: String? = null,
+    @SerialName("to_entity_id") val toEntityId: String? = null,
+    /** What was undertaken, in plain words. "Bring the manifest to the weighing office by dusk." */
+    val terms: String = "",
+    /** For a debt. Zero otherwise. */
+    val amount: Int = 0,
+    /** Hours from now, when the obligation has a deadline. Zero or absent for open-ended. */
+    @SerialName("due_in_hours") val dueInHours: Int = 0,
+    val importance: String = Importance.MEDIUM.name,
+) {
+    fun kindOrNull(): com.unbound.core.continuity.CommitmentKind? =
+        com.unbound.core.continuity.CommitmentKind.entries.firstOrNull { it.name == kind.uppercase() }
+
+    fun importanceOrNull(): Importance? = Importance.entries.firstOrNull { it.name == importance.uppercase() }
+
+    /** The resulting status when closing, or null when this opens a new obligation. */
+    fun closingStatus(): com.unbound.core.continuity.CommitmentStatus? = when (action.uppercase()) {
+        "KEPT" -> com.unbound.core.continuity.CommitmentStatus.KEPT
+        "BROKEN" -> com.unbound.core.continuity.CommitmentStatus.BROKEN
+        "FORGIVEN" -> com.unbound.core.continuity.CommitmentStatus.FORGIVEN
+        "VOID" -> com.unbound.core.continuity.CommitmentStatus.VOID
+        else -> null
+    }
+
+    fun isOpening(): Boolean = action.uppercase() == "MADE"
+}
 
 @Serializable
 data class EventDto(
@@ -148,11 +189,3 @@ data class NewCharacterDto(
     @SerialName("location_id") val locationId: String? = null,
 )
 
-@Serializable
-data class WorldChangeDto(
-    val type: String,
-    @SerialName("location_id") val locationId: String? = null,
-    @SerialName("faction_id") val factionId: String? = null,
-    val value: String = "",
-    val description: String = "",
-)

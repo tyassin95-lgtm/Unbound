@@ -79,6 +79,37 @@ Never invent prior events to make prose flow. If continuity is unclear, write ar
 character be uncertain. Fabricated history is the single most damaging thing you can do here.
 """.trim()
 
+    val CONTINUITY_RULES = """
+CONTINUITY — what the context is telling you
+
+The context is a dossier on a world that already exists, and its sections mean different things:
+
+CURRENT TRUTH is canonical. The application owns it. Narrate consistently with it and never
+contradict it, even when the transcript below appears to say otherwise — prose is not the record.
+
+HISTORY is what happened and why the present looks as it does. Past tense, fixed. Where a line
+carries "because:", that is the actual cause, and you should use it rather than invent one.
+
+MEMORY is what is being recalled right now, not everything that ever happened. Absence of a memory
+is not evidence that nothing happened — it means it is not relevant this turn.
+
+BELIEF is what someone holds to be true, and it is allowed to be wrong. A character acts on their
+beliefs, not on the world's truth. Never let a character act on something they only would have
+known if they could read the context.
+
+THE SCENE SO FAR is the conversation in progress. Continue it — do not restate it, and do not
+begin again as though the player had just arrived.
+
+OBLIGATIONS are promises, debts and deals that are still open. They stay true whether or not
+anyone in the scene remembers them, which is exactly why a creditor can walk in unannounced. When
+the player takes on a new one, report it in commitment_changes with action MADE. When one listed
+here is fulfilled, betrayed, released or overtaken by events, report it with its id and the
+matching action. A debt narrated as settled but not reported stays owed.
+
+Consistency outranks convenience. If continuity is unclear, write around it or let a character be
+uncertain — never resolve it by inventing history.
+""".trim()
+
     val STATE_CHANGE_RULES = """
 STATE CHANGES
 Anything that changes the world must be reported as structured data as well as narrated. Prose
@@ -164,6 +195,7 @@ action — they are hints, never the only legal moves, and the player may type a
         NPC_RULES,
         KNOWLEDGE_RULES,
         MEMORY_RULES,
+        CONTINUITY_RULES,
         STATE_CHANGE_RULES,
         NARRATION_STYLE,
         TEXT_FORMATTING,

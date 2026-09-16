@@ -58,6 +58,7 @@ class SnapshotService(
             rumors = store.allRumors(gameId),
             memories = store.allMemories(gameId),
             summaries = store.summaries(gameId, MAX_ROWS),
+            commitments = store.allCommitments(gameId),
         )
 
         val snapshot = SnapshotRecord(
@@ -148,6 +149,7 @@ class SnapshotService(
         store.upsertRumors(state.rumors)
         store.upsertMemories(state.memories)
         store.upsertSummaries(state.summaries)
+        store.upsertCommitments(state.commitments)
         store.upsertGame(state.game.copy(stateVersion = game.stateVersion + 1, updatedAtEpochMs = clock()))
 
         UndoResult.Restored(snapshot.turnNumber, game.turnNumber - snapshot.turnNumber)
@@ -184,6 +186,8 @@ data class StateSnapshot(
     val rumors: List<RumorRecord>,
     val memories: List<MemoryRecord>,
     val summaries: List<SummaryRecord>,
+    /** Defaulted so a restore point written before obligations existed still decodes. */
+    val commitments: List<com.unbound.core.continuity.CommitmentRecord> = emptyList(),
 )
 
 data class SnapshotConfig(val everyTurns: Int = 15, val keep: Int = 8)

@@ -535,6 +535,33 @@ class TurnPipeline(
             )
         }
 
+        // What the narrator said this cost. These were accepted into the schema, validated, and
+        // then never read — so a model reporting "this cost her trust" changed nothing, and the
+        // only relationship movement in the game came from the event-type defaults below.
+        for (change in response.relationshipChanges) {
+            if (change.changes.isEmpty()) continue
+            val other = change.takeIf { it.fromEntityId == Ids.PLAYER }?.toEntityId
+                ?: change.takeIf { it.toEntityId == Ids.PLAYER }?.fromEntityId
+                ?: change.toEntityId
+            if (Ids.kindOf(other) != EntityKind.NPC) continue
+            if (!assembly.validationContext.entityExists(other)) continue
+
+            // One record per pair, always oriented (player -> character): writing the other way
+            // round put hostility where nothing looked for it.
+            val (from, to) = RelationshipRecord.canonicalKey(game.id, Ids.PLAYER, change.fromEntityId, other)
+            val key = RelationshipRecord.key(game.id, from, to)
+            val existing = relationshipEdits[key]
+                ?: store.getRelationship(game.id, from, to)
+                ?: RelationshipRecord(key, game.id, from, to)
+            relationshipEdits[key] = relationshipEngine.apply(
+                existing,
+                change.changes,
+                change.reason,
+                newWorldTime.totalMinutes,
+                rootEventId,
+            )
+        }
+
         // Relationship consequences the model did not spell out, derived locally from event type.
         for (event in events) {
             if (event.actorId != Ids.PLAYER || event.targetId == null) continue
@@ -864,6 +891,63 @@ class TurnPipeline(
             emit(EventType.TIME_ADVANCED, "$timeAdvance minutes passed.", Importance.TRIVIAL, scope = KnowledgeScope.PUBLIC)
         }
 
+        // --- obligations ----------------------------------------------------------------------
+        // Opened and closed here rather than inferred from events: an obligation is state the
+        // world consults for as long as it stands, not a line in a history nobody reads back.
+        val commitmentWrites = mutableListOf<com.unbound.core.continuity.CommitmentRecord>()
+        for (change in validation.commitmentChanges) {
+            if (change.isOpening()) {
+                val kind = change.kindOrNull() ?: continue
+                val from = change.fromEntityId ?: Ids.PLAYER
+                val to = change.toEntityId ?: continue
+                if (change.terms.isBlank()) continue
+                val id = Ids.commitment(idFactory())
+                commitmentWrites += com.unbound.core.continuity.CommitmentRecord(
+                    id = id,
+                    gameId = game.id,
+                    kind = kind,
+                    fromEntityId = from,
+                    toEntityId = to,
+                    terms = change.terms.take(MAX_TERMS),
+                    importance = change.importanceOrNull() ?: Importance.MEDIUM,
+                    amount = change.amount.toLong().coerceAtLeast(0),
+                    createdWorldMinutes = newWorldTime.totalMinutes,
+                    dueWorldMinutes = change.dueInHours
+                        .takeIf { it > 0 }
+                        ?.let { newWorldTime.totalMinutes + it * 60L },
+                    originEventId = rootEventId,
+                )
+                emit(
+                    EventType.PLAYER_MADE_PROMISE,
+                    "${kind.name.lowercase().replaceFirstChar { c -> c.uppercase() }}: ${change.terms.take(MAX_TERMS)}",
+                    Importance.HIGH,
+                    actorId = from,
+                    targetId = to,
+                    related = listOf(id),
+                )
+            } else {
+                val status = change.closingStatus() ?: continue
+                val existing = assembly.context.commitments.firstOrNull { it.id == change.commitmentId } ?: continue
+                commitmentWrites += existing.copy(
+                    status = status,
+                    resolvedWorldMinutes = newWorldTime.totalMinutes,
+                    resolutionEventId = rootEventId,
+                )
+                emit(
+                    if (status == com.unbound.core.continuity.CommitmentStatus.BROKEN) {
+                        EventType.PLAYER_BROKE_PROMISE
+                    } else {
+                        EventType.PLAYER_MADE_PROMISE
+                    },
+                    "${status.name.lowercase().replaceFirstChar { c -> c.uppercase() }}: ${existing.terms}",
+                    if (status == com.unbound.core.continuity.CommitmentStatus.BROKEN) Importance.HIGH else Importance.MEDIUM,
+                    actorId = existing.fromEntityId,
+                    targetId = existing.toEntityId,
+                    related = listOf(existing.id),
+                )
+            }
+        }
+
         // --- persist ------------------------------------------------------------------------------
         store.upsertPlayer(updatedPlayer)
         store.upsertWorld(updatedWorld)
@@ -873,6 +957,7 @@ class TurnPipeline(
         if (factionEdits.isNotEmpty()) store.upsertFactions(factionEdits.values)
         if (relationshipEdits.isNotEmpty()) store.upsertRelationships(relationshipEdits.values)
         if (knowledgeRecords.isNotEmpty()) store.upsertKnowledge(knowledgeRecords)
+        if (commitmentWrites.isNotEmpty()) store.upsertCommitments(commitmentWrites)
         if (rumorRecords.isNotEmpty() || simulation.rumorUpdates.isNotEmpty()) {
             store.upsertRumors(rumorRecords + simulation.rumorUpdates)
         }
@@ -1021,6 +1106,7 @@ class TurnPipeline(
         /** Below a few hours, nothing has had time to cool off. */
         const val MAX_WORLD_NOTES = 6
         const val MAX_ACTION_SUMMARY = 180
+        const val MAX_TERMS = 240
         const val DECAY_THRESHOLD_MINUTES = 240
         const val MAX_DECAY_ROWS = 80
 

@@ -164,6 +164,9 @@ class InMemoryWorldStore : WorldStore {
 
     // --- items -------------------------------------------------------------------------------
     override suspend fun getItem(gameId: String, itemId: String) = items[itemId]?.takeIf { it.gameId == gameId }
+    override suspend fun itemsOwnedByAny(gameId: String, ownerIds: Collection<String>) =
+        items.values.filter { it.gameId == gameId && it.ownerId in ownerIds && it.condition != ItemCondition.DESTROYED }
+
     override suspend fun itemsOwnedBy(gameId: String, ownerId: String) =
         items.values.filter { it.gameId == gameId && it.ownerId == ownerId && it.condition != ItemCondition.DESTROYED }
     override suspend fun itemsAt(gameId: String, locationId: String) =
@@ -331,6 +334,7 @@ class InMemoryWorldStore : WorldStore {
         rumors.values.removeAll { it.gameId == gameId }
         memories.values.removeAll { it.gameId == gameId }
         summaries.values.removeAll { it.gameId == gameId }
+        commitments.values.removeAll { it.gameId == gameId }
     }
 
     override suspend fun deleteTurnsAfter(gameId: String, turnNumber: Int) {

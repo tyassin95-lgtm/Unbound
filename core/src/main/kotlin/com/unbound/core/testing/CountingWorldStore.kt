@@ -151,6 +151,8 @@ class CountingWorldStore(private val delegate: WorldStore) : WorldStore {
     override suspend fun usageFor(gameId: String?, limit: Int) = track("usageFor") { delegate.usageFor(gameId, limit) }
     override suspend fun usageTotals(gameId: String?): UsageTotals = track("usageTotals") { delegate.usageTotals(gameId) }
     override suspend fun usageByModel(gameId: String?) = track("usageByModel") { delegate.usageByModel(gameId) }
+    override suspend fun itemsOwnedByAny(gameId: String, ownerIds: Collection<String>) =
+        track("itemsOwnedByAny") { delegate.itemsOwnedByAny(gameId, ownerIds) }
     override suspend fun eventsByIds(gameId: String, ids: Collection<String>) = track("eventsByIds") { delegate.eventsByIds(gameId, ids) }
     override suspend fun knowledgeForKnowers(gameId: String, knowerIds: Collection<String>, limitPerKnower: Int) =
         track("knowledgeForKnowers") { delegate.knowledgeForKnowers(gameId, knowerIds, limitPerKnower) }

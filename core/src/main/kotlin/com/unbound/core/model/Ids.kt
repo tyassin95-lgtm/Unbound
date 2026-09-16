@@ -15,6 +15,7 @@ object Ids {
     fun item(seed: String): String = "item_$seed"
     fun thread(seed: String): String = "thr_$seed"
     fun event(seed: String): String = "evt_$seed"
+    fun commitment(seed: String): String = "cmt_$seed"
     fun memory(seed: String): String = "mem_$seed"
     fun turn(seed: String): String = "turn_$seed"
     fun snapshot(seed: String): String = "snap_$seed"

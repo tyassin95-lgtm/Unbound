@@ -26,6 +26,8 @@ data class TurnContext(
     val npcKnowledge: Map<String, List<KnowledgeRecord>>,
     val playerKnowledge: List<KnowledgeRecord>,
     val inventory: List<ItemRecord>,
+    /** What the people in the room are carrying, so the turn can refer to it and move it. */
+    val carriedByOthers: List<ItemRecord> = emptyList(),
     val factions: List<FactionRecord>,
     val threads: List<ThreadRecord>,
     val rumors: List<RumorRecord>,
@@ -147,6 +149,15 @@ class ContextBuilder {
             }
         }
 
+        if (ctx.carriedByOthers.isNotEmpty()) {
+            section("CURRENT TRUTH — what the people here are carrying") {
+                ctx.carriedByOthers.groupBy { it.ownerId }.forEach { (ownerId, items) ->
+                    val owner = ownerId?.let { nameFor(it, ctx) } ?: "someone"
+                    line("$owner: " + items.joinToString(", ") { "${it.name} [${it.id}]" })
+                }
+            }
+        }
+
         val offScreen = ctx.relevantNpcs.filter { n -> ctx.presentNpcs.none { it.id == n.id } }
         if (offScreen.isNotEmpty()) {
             section("CURRENT TRUTH — people known to the player, elsewhere right now") {
@@ -220,7 +231,11 @@ class ContextBuilder {
         if (ctx.commitments.isNotEmpty()) {
             section("CURRENT TRUTH — outstanding obligations, true whether or not anyone remembers") {
                 val nameOf: (String) -> String = { id -> nameFor(id, ctx) }
-                ctx.commitments.forEach { line("- " + it.describe(ctx.game.worldTime.totalMinutes, nameOf)) }
+                // The id is here so a turn can close one. Without it the model can only narrate a
+                // debt being settled, which changes nothing.
+                ctx.commitments.forEach {
+                    line("- [${it.id}] " + it.describe(ctx.game.worldTime.totalMinutes, nameOf))
+                }
             }
         }
 

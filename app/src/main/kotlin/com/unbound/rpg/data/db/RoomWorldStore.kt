@@ -85,6 +85,9 @@ class RoomWorldStore(private val db: UnboundDatabase) : WorldStore {
 
     // --- items ----------------------------------------------------------------------------------------
     override suspend fun getItem(gameId: String, itemId: String) = db.items().get(gameId, itemId)?.let(Mappers::toItem)
+    override suspend fun itemsOwnedByAny(gameId: String, ownerIds: Collection<String>) =
+        chunked(ownerIds) { db.items().ownedByAny(gameId, it) }.distinctBy { it.id }.map(Mappers::toItem)
+
     override suspend fun itemsOwnedBy(gameId: String, ownerId: String) = db.items().ownedBy(gameId, ownerId).map(Mappers::toItem)
     override suspend fun itemsAt(gameId: String, locationId: String) = db.items().at(gameId, locationId).map(Mappers::toItem)
     override suspend fun allItems(gameId: String, limit: Int) = db.items().all(gameId, limit).map(Mappers::toItem)
@@ -240,6 +243,7 @@ class RoomWorldStore(private val db: UnboundDatabase) : WorldStore {
         db.rumors().clearGame(gameId)
         db.memories().clearGame(gameId)
         db.summaries().clearGame(gameId)
+        db.commitments().clearGame(gameId)
     }
 
     override suspend fun deleteTurnsAfter(gameId: String, turnNumber: Int) = db.turns().deleteAfter(gameId, turnNumber)

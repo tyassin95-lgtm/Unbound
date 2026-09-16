@@ -77,6 +77,10 @@ class ContinuityEngine(
         val allFactions = store.factions(game.id)
         val factions = allFactions.filter { it.discovered }.take(MAX_FACTIONS)
         val inventory = store.itemsOwnedBy(game.id, player.id)
+        // Things the people in the room are carrying. Without these a turn could not move an item
+        // the player can plainly see someone holding: the validator had no record of it, so the
+        // transfer was rejected as a reference to nothing.
+        val carriedByOthers = store.itemsOwnedByAny(game.id, present.map { it.id }).take(MAX_CARRIED_ITEMS)
         val rumors = store.activeRumors(game.id, budget.maxRumors)
 
         val focusIds = mentioned + relevantNpcs.map { it.id }
@@ -142,6 +146,7 @@ class ContinuityEngine(
             npcKnowledge = npcKnowledge,
             playerKnowledge = playerKnowledge,
             inventory = inventory,
+            carriedByOthers = carriedByOthers,
             factions = factions,
             threads = openThreads,
             rumors = rumors,
@@ -165,7 +170,8 @@ class ContinuityEngine(
             npcs = (relevantNpcs + present).distinctBy { it.id }.associateBy { it.id },
             locations = (referencedLocations + location).distinctBy { it.id }.associateBy { it.id },
             factions = allFactions.associateBy { it.id },
-            items = (inventory + store.itemsAt(game.id, location.id)).distinctBy { it.id }.associateBy { it.id },
+            items = (inventory + carriedByOthers + store.itemsAt(game.id, location.id))
+                .distinctBy { it.id }.associateBy { it.id },
             reachableLocationIds = reachable,
             specialRules = world.specialRules,
             // Everyone and everywhere this campaign actually has, so a reference to someone real
@@ -247,6 +253,7 @@ class ContinuityEngine(
         const val MAX_COMMITMENTS = 60
         const val MAX_CAUSES = 12
         const val MAX_LOCATION_HISTORY = 4
+        const val MAX_CARRIED_ITEMS = 24
         const val MAX_KNOWN_LOCATIONS = 200
 
         /**

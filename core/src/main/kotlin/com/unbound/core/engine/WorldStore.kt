@@ -79,6 +79,9 @@ interface WorldStore {
     // --- items -------------------------------------------------------------------------------
     suspend fun getItem(gameId: String, itemId: String): ItemRecord?
     suspend fun itemsOwnedBy(gameId: String, ownerId: String): List<ItemRecord>
+
+    /** What several owners are carrying, in one read rather than one per person in the room. */
+    suspend fun itemsOwnedByAny(gameId: String, ownerIds: Collection<String>): List<ItemRecord>
     suspend fun itemsAt(gameId: String, locationId: String): List<ItemRecord>
     suspend fun upsertItems(items: Collection<ItemRecord>)
 

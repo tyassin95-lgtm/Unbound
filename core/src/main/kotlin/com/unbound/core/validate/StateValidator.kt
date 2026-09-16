@@ -304,7 +304,57 @@ class StateValidator(
             acceptedKnowledge += k
         }
 
-        return ValidationResult(ops, issues, acceptedKnowledge, acceptedEvents, acceptedActions)
+        // Obligations. The world may only settle one that actually stands, and may only bind
+        // parties it can name — otherwise a turn can quietly discharge a debt by asserting it did.
+        val acceptedCommitments = mutableListOf<CommitmentChangeDto>()
+        val openById = ctx.openCommitments.associateBy { it.id }
+        for (change in response.commitmentChanges) {
+            if (change.isOpening()) {
+                if (change.kindOrNull() == null) {
+                    issues += ValidationIssue("UNKNOWN_COMMITMENT_KIND", "No such kind of obligation: ${change.kind}", fatal = false)
+                    continue
+                }
+                if (change.terms.isBlank()) {
+                    issues += ValidationIssue("EMPTY_COMMITMENT", "An obligation with no terms cannot be held to.", fatal = false)
+                    continue
+                }
+                val from = change.fromEntityId ?: Ids.PLAYER
+                val to = change.toEntityId
+                if (to == null) {
+                    issues += ValidationIssue("DANGLING_COMMITMENT", "An obligation must be owed to someone.", fatal = false)
+                    continue
+                }
+                if (!ctx.entityExists(from) || !ctx.entityExists(to)) {
+                    issues += ValidationIssue(
+                        "DANGLING_COMMITMENT",
+                        "Obligation between unknown parties: $from -> $to",
+                        fatal = false,
+                    )
+                    continue
+                }
+                acceptedCommitments += change
+            } else {
+                val id = change.commitmentId
+                val existing = id?.let { openById[it] }
+                if (existing == null) {
+                    // The most damaging version of this is a turn declaring a debt settled that
+                    // the world never recorded, which would erase an obligation by inventing it.
+                    issues += ValidationIssue(
+                        "NO_SUCH_COMMITMENT",
+                        "Cannot ${change.action.lowercase()} an obligation that is not open: $id",
+                        fatal = false,
+                    )
+                    continue
+                }
+                if (change.closingStatus() == null) {
+                    issues += ValidationIssue("UNKNOWN_COMMITMENT_ACTION", "No such action: ${change.action}", fatal = false)
+                    continue
+                }
+                acceptedCommitments += change
+            }
+        }
+
+        return ValidationResult(ops, issues, acceptedKnowledge, acceptedEvents, acceptedActions, acceptedCommitments)
     }
 
     private fun parseAndCheck(
