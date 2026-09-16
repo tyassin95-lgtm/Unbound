@@ -1,10 +1,10 @@
 # Testing
 
-170 tests, 0 failures. No test makes a network call or needs an API key.
+205 tests, 0 failures. No test makes a network call or needs an API key.
 
 ```bash
-./gradlew :core:test            # 129 tests — engine, pure JVM, ~5s
-./gradlew :app:testDebugUnitTest # 41 tests — Room on real SQLite, the player journey, security
+./gradlew :core:test            # 142 tests — engine and continuity, pure JVM
+./gradlew :app:testDebugUnitTest # 63 tests — Room on real SQLite, both providers, the player journey, security
 ./gradlew test                   # everything
 ```
 
@@ -23,6 +23,11 @@
 | `SaveTransferTest` | 2 | 1.5s | importing a save, and refusing one that is not |
 | `ImageStorageTest` | 2 | 1.4s | reclaiming picture files, sweeping orphans |
 | `NewGameDraftSaverTest` | 3 | 0.0s | the creation draft surviving a rotation |
+| `ContinuityScenarioTest` | 10 | 1.2s | the nine continuity scenarios, on persisted state |
+| `LongCampaignContinuityTest` | 3 | 4.5s | early history reachable *and* context bounded, to 249 turns |
+| `GeminiProviderTest` | 8 | 1.0s | the Gemini wire format, against a real HTTP server |
+| `ProviderRoutingTest` | 8 | 0.1s | routing, parity and when a fallback may and may not fire |
+| `MigrationTest` | 2 | 1.4s | a v1 campaign surviving the upgrade, against the real schema |
 | `WorldTimeTest` | 5 | 0.0s | calendar, seasons, elapsed-time phrasing |
 | `LongCampaignTest` | 4 | 0.4s | 150 turns, context bounds, cost |
 | `ContentGuardTest` | 4 | 0.0s | age gating |
@@ -163,6 +168,31 @@ the end-to-end journey test, not by inspection:
     the player had spent on their own key.
 19. **Character creation lost everything typed on a rotation.** The step number was saveable; the
     draft holding the character was not.
+
+## Bugs the continuity upgrade found
+
+Investigating *why* continuity was weak, rather than adding prompt, turned up five fields and one
+whole channel that were accepted, validated and then never read — and one that was hard-coded
+empty:
+
+20. **The transcript was never sent.** `recentTurns` was read every turn and used only to detect
+    repetition, so no prior narration and no prior player input ever reached the model. Every turn
+    arrived as a fresh dossier with no conversation attached. The largest single cause.
+21. **NPC interiority was stored and discarded.** Goals, desires, fears, values and secrets sat on
+    every character; the context sent personality and a mood.
+22. **`worldNotes = emptyList()`** was hard-coded in assembly, so the section the system prompt
+    instructs the model to honour never rendered.
+23. **`causedByEventId`** existed on every event and was never written, so nothing could explain
+    why a current condition existed.
+24. **`relationship_changes`** were discarded: a model reporting "this cost her trust" changed
+    nothing, and all relationship movement came from event-type defaults.
+25. **`world_changes`** was a channel duplicating `state_changes`, where only `state_changes` was
+    wired. Removed rather than given a second path to the same place.
+26. **Items held by people in the room** were never in the context, so the validator rejected a
+    transfer of something it had no record of — the player could not take, be given, or be robbed
+    of anything an NPC was holding.
+27. **The Gemini schema translator** reached for `.jsonPrimitive` on the array form of `type`,
+    which throws rather than returning null. Found by the first test written against it.
 
 ## What is *not* tested, and why
 

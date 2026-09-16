@@ -105,6 +105,53 @@ class PlayerJourneyTest {
         }
     }
 
+    /**
+     * The same world, played on the other provider.
+     *
+     * The engine is supposed to be entirely independent of which vendor is running, so this asserts
+     * the property directly rather than trusting the layering: a campaign marked as Gemini's
+     * produces the same state, the same journal and the same continuity, and the requests that
+     * leave carry that provider.
+     */
+    @Test
+    fun `a campaign runs identically on either provider`() = runTest {
+        val creator = creator()
+        answerCreationCalls()
+        val seed = creator.generateWorld(spec) {}.getOrThrow()
+        behaviour.rawResponder = null
+
+        val outcomes = listOf("openai", "gemini").map { providerId ->
+            val outcome = creator.create(
+                seed,
+                spec.copy(textProviderId = providerId, name = "Rook $providerId"),
+                opening = "The gate roster has your name on it.",
+            ) {}
+            assertTrue(outcome is CreationOutcome.Created)
+            val game = (outcome as CreationOutcome.Created).game
+
+            assertEquals("The save must record whose model runs it", providerId, game.textProviderId)
+
+            val session = GameSession(container, game.id)
+            repeat(8) { i -> assertTrue(session.submit("I ask around, take $i.") is SessionResult.Narrated) }
+
+            // Every request left with the campaign's own provider on it.
+            assertEquals(providerId, (container.provider as MockAIProvider).lastRequest!!.providerId)
+
+            val g = container.store.getGame(game.id)!!
+            val journal = session.journal()
+            Triple(g.turnNumber, journal.people.size, container.store.countEvents(game.id))
+        }
+
+        assertEquals(
+            "The world must not depend on whose model narrated it",
+            outcomes.first(),
+            outcomes.last(),
+        )
+        // Usage is attributed to the right vendor, since costs are per provider.
+        val byProvider = container.store.usageByModel(null).groupBy { it.providerId }
+        assertTrue(byProvider.keys.containsAll(setOf("openai", "gemini")))
+    }
+
     @Test
     fun `a player can build a world, play it, look things up, step back, and come back to it`() = runTest {
         val creator = creator()

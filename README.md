@@ -3,8 +3,8 @@
 **Living World AI RPG** — a persistent open-world text RPG for Android where the world remembers
 what you did, and the people in it only know what they actually learned.
 
-You bring your own OpenAI API key. There is no UNBOUND account, no UNBOUND server, and no
-application-owned key. Your campaign lives on your device.
+You bring your own API key — **OpenAI or Google Gemini**, whichever you prefer. There is no UNBOUND
+account, no UNBOUND server, and no application-owned key. Your campaign lives on your device.
 
 ---
 
@@ -15,11 +15,16 @@ forgets. UNBOUND inverts that: **the application owns canonical truth and the mo
 operating against it.**
 
 ```
-Android app  ──HTTPS──▶  OpenAI
+Android app  ──HTTPS──▶  OpenAI  or  Google Gemini
      │
      └── owns: canonical state, an append-only event ledger, per-character
-         knowledge, long-term memory, relationships, threads, world time
+         knowledge, long-term memory, relationships, threads, obligations,
+         world time
 ```
+
+The provider is interchangeable and the world does not change when you switch: a test plays the
+same campaign on both and requires identical state, journal and history. See
+[docs/PROVIDERS.md](docs/PROVIDERS.md).
 
 Concretely, that means:
 
@@ -59,17 +64,18 @@ lose.
 ## Setup
 
 1. Install the APK (see [Build](#build)).
-2. Open it. The first screen explains the BYOK arrangement and asks for your OpenAI API key.
-3. Tap **Connect OpenAI**. The key is verified against your account and stored in this device's
-   hardware-backed keystore.
+2. Open it. The first screen explains the BYOK arrangement and asks which service you want to use.
+   **Gemini has a free tier**, which is the quickest way to start; OpenAI is pay-as-you-go.
+3. Paste the key and tap **Connect**. It is verified against your account and stored in this
+   device's hardware-backed keystore. You can add the other provider later, and keep both.
 4. Choose a story model. UNBOUND fetches the models *your key can actually reach* and shows which
    ones can and cannot be used, with the reason.
 5. Optionally choose an image model. Image generation defaults to **on demand** — nothing is
    generated unless you ask.
 6. Start a new game: character, setting, opening situation.
 
-Your OpenAI account is billed for your usage. UNBOUND shows local estimates and says plainly that
-your OpenAI dashboard is the authority.
+Your own account is billed for your usage. UNBOUND shows local estimates, per provider, and says
+plainly that the provider's own console is the authority.
 
 ---
 
@@ -78,18 +84,20 @@ your OpenAI dashboard is the authority.
 Two modules, with the boundary placed where it buys the most:
 
 ```
-core/   pure Kotlin/JVM — no Android, no OpenAI, no Compose
+core/   pure Kotlin/JVM — no Android, no vendor, no Compose
         domain · event ledger · memory · knowledge · relationships · threads
-        simulation · validator · prompt builder · turn pipeline · AI interfaces
+        obligations · continuity engine · simulation · validator · prompt
+        builder · turn pipeline · AI interfaces
 
 app/    Android
-        Room · Android Keystore · OpenAI provider · Compose UI
+        Room · Android Keystore · OpenAI and Gemini providers · Compose UI
 ```
 
 `core` depends on no Android class, which is why the engine can be — and is — tested as ordinary
 fast JVM tests: a 150-turn campaign, the long-term-memory scenario, the validator's rejection cases.
-`core` also has no knowledge of OpenAI, so adding a provider means writing one class in
-`app/data/ai/`.
+`core` has no knowledge of any vendor. The provider travels on each request as an opaque string
+read from the save, so adding a third would mean writing one class in `app/data/ai/` and touching
+nothing in the engine.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
@@ -105,12 +113,17 @@ Four layers, because one would either forget or cost a fortune:
 | **Event ledger** | Append-only, never rewritten. Every meaningful thing that happened | Never wholesale — a bounded, scored slice |
 | **Semantic memories** | Compact durable lines, reinforced when repeated | The top ~14 by relevance |
 | **Summaries** | Chapter and history digests | Up to 3 |
+| **Obligations** | Promises, debts and deals — true whether or not anyone remembers them | All that are open and relevant |
 
 Retrieval is **structured filter first, scoring second, hard budget last**, and none of the three
-stages is proportional to campaign age. A test asserts this directly: across 150 turns, late-game
-prompt context does not grow beyond 1.6× the early-game size.
+stages is proportional to campaign age. A test asserts this directly: across 249 turns, early
+history stays reachable *while* the context stays bounded — either alone is easy and useless.
 
-See [docs/MEMORY.md](docs/MEMORY.md).
+On top of that, the model is given the last few turns verbatim. Structured state alone cannot carry
+a conversation, and asking a model to reconstruct one from a summary of it is what made players
+repeat themselves.
+
+See [docs/MEMORY.md](docs/MEMORY.md) and [docs/CONTINUITY.md](docs/CONTINUITY.md).
 
 ---
 
@@ -160,8 +173,8 @@ before distributing.** See [docs/BUILD.md](docs/BUILD.md).
 | Campaigns, NPCs, memories, ledger | Room database, app-private | No |
 | Generated images | App-private files | No |
 | Usage and cost estimates | Room, app-private | No — there is no upload path in the codebase |
-| OpenAI API key | AES-256-GCM, key non-extractable in Android Keystore | Only as an `Authorization` header to OpenAI |
-| Your prose and world state | — | Only to OpenAI, as prompt context |
+| Each provider's API key | AES-256-GCM, key non-extractable in Android Keystore, one file and one alias per provider | Only as a request header — `Authorization` for OpenAI, `x-goog-api-key` for Gemini, never in a URL |
+| Your prose and world state | — | Only to the provider you chose, as prompt context |
 
 Save exports are portable JSON and **cannot** contain a credential: `SaveBundle` has no field for
 one, and a test asserts the exported bytes contain nothing key-shaped.

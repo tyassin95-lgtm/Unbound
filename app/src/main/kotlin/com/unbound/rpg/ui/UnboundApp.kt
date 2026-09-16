@@ -42,7 +42,12 @@ fun UnboundApp(container: AppContainer) {
 
     val settingsState by appViewModel.settings.collectAsState()
     val start = remember {
-        if (container.credentials.hasKey()) Routes.SAVES else Routes.ONBOARDING
+        // Any provider will do. The app needs one key, not a particular one.
+        if (container.registry.available.any { container.credentialsFor(it.id).hasKey() }) {
+            Routes.SAVES
+        } else {
+            Routes.ONBOARDING
+        }
     }
 
     // Every plain navigation is single-top: a double tap on a button must open one screen, not two.
