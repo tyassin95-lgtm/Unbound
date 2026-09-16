@@ -53,7 +53,7 @@ class AppContainer(context: Context) {
     val pipeline: TurnPipeline by lazy { TurnPipeline(store, provider, clock, idFactory, retriever) }
     val journal: JournalBuilder by lazy { JournalBuilder(store) }
     val saveSystem: SaveSystem by lazy { SaveSystem(store, clock, idFactory) }
-    val snapshots: SnapshotService by lazy { SnapshotService(store, saveSystem, clock, idFactory) }
+    val snapshots: SnapshotService by lazy { SnapshotService(store, clock, idFactory) }
     val images: ImageService by lazy { ImageService(appContext, store, provider, clock, idFactory) }
 
     val costEstimator: CostEstimator by lazy {

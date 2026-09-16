@@ -25,7 +25,6 @@ import kotlinx.serialization.json.Json
  */
 class SnapshotService(
     private val store: WorldStore,
-    private val saveSystem: SaveSystem,
     private val clock: () -> Long,
     private val idFactory: () -> String,
     private val config: SnapshotConfig = SnapshotConfig(),

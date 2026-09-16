@@ -56,7 +56,7 @@ class SaveAndUndoTest {
     fun `undo restores the world, not just the last paragraph`() = runTest {
         val w = TestWorld()
         val save = SaveSystem(w.store, w.clock, w.ids)
-        val snapshots = SnapshotService(w.store, save, w.clock, w.ids)
+        val snapshots = SnapshotService(w.store, w.clock, w.ids)
         val game = w.newGame()
 
         repeat(4) { w.pipeline.execute(game.id, "I work quietly.") }
@@ -97,7 +97,7 @@ class SaveAndUndoTest {
     fun `undo refuses rather than guessing when no snapshot covers the target`() = runTest {
         val w = TestWorld()
         val save = SaveSystem(w.store, w.clock, w.ids)
-        val snapshots = SnapshotService(w.store, save, w.clock, w.ids)
+        val snapshots = SnapshotService(w.store, w.clock, w.ids)
         val game = w.newGame()
         repeat(3) { w.pipeline.execute(game.id, "I keep going.") }
 

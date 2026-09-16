@@ -13,11 +13,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -51,6 +54,7 @@ fun PlayScreen(
     val listState = rememberLazyListState()
     var input by rememberSaveable { mutableStateOf("") }
     var showImagePicker by rememberSaveable { mutableStateOf(false) }
+    var confirmUndo by rememberSaveable { mutableStateOf(false) }
     val keyboard = LocalSoftwareKeyboardController.current
 
     // Follow the newest entry, but only when new content actually arrives, so the player can scroll
@@ -70,8 +74,35 @@ fun PlayScreen(
         )
     }
 
+    val undo = state.undoPreview
+    if (confirmUndo && undo != null) {
+        AlertDialog(
+            onDismissRequest = { confirmUndo = false },
+            title = { Text("Step the world back?") },
+            text = {
+                Text(
+                    "This returns the world to turn ${undo.toTurn}, discarding " +
+                        "${undo.turnsLost} turn(s) and ${undo.eventsLost} recorded event(s). " +
+                        "What you were charged for those turns is not refunded and stays in your usage history.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { confirmUndo = false; viewModel.undo() }) { Text("Step back") }
+            },
+            dismissButton = { TextButton(onClick = { confirmUndo = false }) { Text("Keep playing") } },
+        )
+    }
+
     Scaffold(
-        topBar = { SceneBar(state, onOpenJournal, onOpenMenu, onBack) },
+        topBar = {
+            SceneBar(
+                state = state,
+                onOpenJournal = onOpenJournal,
+                onOpenMenu = onOpenMenu,
+                onBack = onBack,
+                onUndo = { confirmUndo = true }.takeIf { undo != null && !state.thinking },
+            )
+        },
         bottomBar = {
             InputBar(
                 value = input,
@@ -161,7 +192,13 @@ private fun DrawingIndicator() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SceneBar(state: PlayUiState, onOpenJournal: () -> Unit, onOpenMenu: () -> Unit, onBack: () -> Unit) {
+private fun SceneBar(
+    state: PlayUiState,
+    onOpenJournal: () -> Unit,
+    onOpenMenu: () -> Unit,
+    onBack: () -> Unit,
+    onUndo: (() -> Unit)? = null,
+) {
     Surface(color = MaterialTheme.colorScheme.surface, shadowElevation = 2.dp) {
         Column {
             TopAppBar(
@@ -188,6 +225,11 @@ private fun SceneBar(state: PlayUiState, onOpenJournal: () -> Unit, onOpenMenu: 
                     }
                 },
                 actions = {
+                    onUndo?.let { undo ->
+                        IconButton(onClick = undo) {
+                            Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Step the world back a few turns")
+                        }
+                    }
                     IconButton(onClick = onOpenJournal) {
                         Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = "Open the journal")
                     }
@@ -305,17 +347,29 @@ private fun SystemNote(text: String) {
     }
 }
 
+/**
+ * Decoding happens off the main thread and at a bounded size. Decoding a full 1024px PNG inside
+ * `remember` — as this once did — runs on the composition thread and holds the whole bitmap in
+ * memory, which drops frames every time an old picture scrolls back into view.
+ */
 @Composable
 private fun ScenePicture(entry: SceneEntry.Picture) {
-    val bitmap = remember(entry.image.localPath) {
-        entry.image.localPath?.let { path ->
-            runCatching { android.graphics.BitmapFactory.decodeFile(path) }.getOrNull()
+    var bitmap by remember(entry.image.localPath) { mutableStateOf<android.graphics.Bitmap?>(null) }
+    var decoding by remember(entry.image.localPath) { mutableStateOf(true) }
+    LaunchedEffect(entry.image.localPath) {
+        val path = entry.image.localPath
+        bitmap = if (path == null) {
+            null
+        } else {
+            withContext(Dispatchers.IO) { runCatching { decodeBounded(path) }.getOrNull() }
         }
+        decoding = false
     }
     Column(Modifier.fillMaxWidth()) {
-        if (bitmap != null) {
+        val current = bitmap
+        if (current != null) {
             androidx.compose.foundation.Image(
-                bitmap = bitmap.asImageBitmap(),
+                bitmap = current.asImageBitmap(),
                 contentDescription = entry.caption,
                 contentScale = ContentScale.FillWidth,
                 modifier = Modifier
@@ -328,7 +382,13 @@ private fun ScenePicture(entry: SceneEntry.Picture) {
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth().height(120.dp),
             ) {
-                Box(contentAlignment = Alignment.Center) { Text("Image no longer cached on this device") }
+                Box(contentAlignment = Alignment.Center) {
+                    if (decoding) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                    } else {
+                        Text("Image no longer cached on this device")
+                    }
+                }
             }
         }
         Text(
@@ -339,6 +399,23 @@ private fun ScenePicture(entry: SceneEntry.Picture) {
         )
     }
 }
+
+/** Reads the file's dimensions first and decodes at most [MAX_PICTURE_PX] on the long edge. */
+private fun decodeBounded(path: String): android.graphics.Bitmap? {
+    val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    android.graphics.BitmapFactory.decodeFile(path, bounds)
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+
+    var sample = 1
+    while (maxOf(bounds.outWidth, bounds.outHeight) / sample > MAX_PICTURE_PX) sample *= 2
+
+    return android.graphics.BitmapFactory.decodeFile(
+        path,
+        android.graphics.BitmapFactory.Options().apply { inSampleSize = sample },
+    )
+}
+
+private const val MAX_PICTURE_PX = 1280
 
 @Composable
 private fun ThinkingIndicator() {

@@ -18,7 +18,7 @@ class AuditProbeTest {
     fun `probe - pruning keeps the newest snapshots`() = runTest {
         val w = TestWorld()
         val save = SaveSystem(w.store, w.clock, w.ids)
-        val snapshots = SnapshotService(w.store, save, w.clock, w.ids, SnapshotConfig(everyTurns = 2, keep = 3))
+        val snapshots = SnapshotService(w.store, w.clock, w.ids, SnapshotConfig(everyTurns = 2, keep = 3))
         val game = w.newGame()
 
         repeat(20) {
@@ -52,7 +52,7 @@ class AuditProbeTest {
     fun `probe - undo preserves the player's usage and cost history`() = runTest {
         val w = TestWorld()
         val save = SaveSystem(w.store, w.clock, w.ids)
-        val snapshots = SnapshotService(w.store, save, w.clock, w.ids)
+        val snapshots = SnapshotService(w.store, w.clock, w.ids)
         val game = w.newGame()
 
         repeat(4) { w.pipeline.execute(game.id, "I work.") }
@@ -75,7 +75,7 @@ class AuditProbeTest {
     fun `probe - undo describes what will actually be lost`() = runTest {
         val w = TestWorld()
         val save = SaveSystem(w.store, w.clock, w.ids)
-        val snapshots = SnapshotService(w.store, save, w.clock, w.ids)
+        val snapshots = SnapshotService(w.store, w.clock, w.ids)
         val game = w.newGame()
 
         repeat(3) { w.pipeline.execute(game.id, "I work.") }
@@ -97,7 +97,7 @@ class AuditProbeTest {
     fun `probe - snapshots do not grow without bound as a campaign runs`() = runTest {
         val w = TestWorld()
         val save = SaveSystem(w.store, w.clock, w.ids)
-        val snapshots = SnapshotService(w.store, save, w.clock, w.ids, SnapshotConfig(everyTurns = 10, keep = 4))
+        val snapshots = SnapshotService(w.store, w.clock, w.ids, SnapshotConfig(everyTurns = 10, keep = 4))
         val game = w.newGame()
 
         repeat(60) {

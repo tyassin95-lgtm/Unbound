@@ -352,4 +352,55 @@ class RoomWorldStoreTest {
         assertTrue(totals.outputTokens > 0)
         assertEquals(0, totals.failures)
     }
+
+    @Test
+    fun `snapshot, prune and undo behave the same on real SQL as in memory`() = runTest {
+        val game = newGame()
+        val snapshots = com.unbound.core.save.SnapshotService(store, clock, ids)
+
+        snapshots.capture(game.id, com.unbound.core.model.SnapshotReason.GAME_START)
+        repeat(60) { i ->
+            pipeline.execute(game.id, "Turn ${i + 1}: I keep working.")
+            val g = store.getGame(game.id)!!
+            snapshots.shouldSnapshot(g, sceneWasSignificant = false)?.let { reason ->
+                snapshots.capture(game.id, reason)
+                // The point of pruning is to keep the newest restore point, not to lose it.
+                val kept = store.snapshots(game.id, 100)
+                assertTrue("Pruning deleted the snapshot it had just taken", kept.isNotEmpty())
+                assertEquals(g.turnNumber, kept.maxOf { it.turnNumber })
+            }
+        }
+
+        val kept = store.snapshots(game.id, 100)
+        assertTrue("Restore points must stay bounded", kept.size <= 9)
+        assertTrue(
+            "The start of the game must always be recoverable",
+            kept.any { it.reason == com.unbound.core.model.SnapshotReason.GAME_START },
+        )
+
+        val usageBefore = store.usageTotals(game.id)
+        val preview = snapshots.describeUndo(game.id)!!
+        assertTrue(preview.toTurn < preview.fromTurn)
+        assertTrue("An undo must not claim to discard the whole ledger", preview.eventsLost < store.countEvents(game.id))
+
+        val result = snapshots.undoTo(game.id, preview.toTurn)
+        assertTrue(result is com.unbound.core.save.UndoResult.Restored)
+
+        val after = store.getGame(game.id)!!
+        assertEquals(preview.toTurn, after.turnNumber)
+        assertEquals("Turn history must be truncated, not merely hidden", preview.toTurn, store.countTurns(game.id))
+        assertTrue("The ledger must be truncated too", store.countEvents(game.id) > 0)
+        assertEquals(
+            "An undo rolls back the world, not what the player was charged",
+            usageBefore.requests,
+            store.usageTotals(game.id).requests,
+        )
+
+        // The world must still be playable afterwards: turn numbers continue gaplessly.
+        val outcome = pipeline.execute(game.id, "I carry on.")
+        assertTrue(outcome is TurnOutcome.Success)
+        assertEquals(preview.toTurn + 1, store.getGame(game.id)!!.turnNumber)
+        val seqs = store.eventsPage(game.id, 0, 10_000).map { it.sequence }
+        assertEquals("Truncation must not leave duplicate sequence numbers", seqs.size, seqs.distinct().size)
+    }
 }

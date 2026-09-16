@@ -3,6 +3,7 @@ package com.unbound.rpg.data.ai.openai
 import com.unbound.core.ai.AIModelCatalog
 import com.unbound.core.ai.ModelCapability
 import com.unbound.core.ai.ModelProfile
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -27,11 +28,20 @@ import kotlinx.serialization.json.jsonPrimitive
  */
 class OpenAIModelCatalog(private val client: OpenAIClient) : AIModelCatalog {
 
+    @Volatile
     private var cached: List<ModelProfile>? = null
+    private val refreshLock = kotlinx.coroutines.sync.Mutex()
 
     override suspend fun listModels(): List<ModelProfile> = listModels(forceRefresh = false)
 
     suspend fun listModels(forceRefresh: Boolean): List<ModelProfile> {
+        if (!forceRefresh) cached?.let { return it }
+        // Two screens asking at once must not both spend a request; the second waits and takes
+        // what the first fetched.
+        return refreshLock.withLock { fetch(forceRefresh) }
+    }
+
+    private suspend fun fetch(forceRefresh: Boolean): List<ModelProfile> {
         if (!forceRefresh) cached?.let { return it }
         val response = client.getJson("/models")
         val ids = (response["data"] as? JsonArray).orEmpty()

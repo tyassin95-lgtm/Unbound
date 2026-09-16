@@ -14,6 +14,8 @@ import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import java.util.concurrent.TimeUnit
 import javax.net.ssl.SSLException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
@@ -70,7 +72,12 @@ class OpenAIClient(
 
     suspend fun getJson(path: String): JsonObject = execute(authorizedBuilder(path).get().build())
 
-    private fun execute(request: Request): JsonObject {
+    /**
+     * Every request goes through here, and the dispatch to IO lives here rather than at each call
+     * site. OkHttp's `execute` blocks, and a caller that forgot to wrap it — `listModels` did —
+     * would block whatever thread it was on, which on Android means the main thread.
+     */
+    private suspend fun execute(request: Request): JsonObject = withContext(Dispatchers.IO) {
         val response: Response = try {
             client.newCall(request).execute()
         } catch (e: SocketTimeoutException) {
@@ -86,7 +93,7 @@ class OpenAIClient(
         response.use {
             val bodyText = it.body?.string().orEmpty()
             if (!it.isSuccessful) throw classify(it, bodyText)
-            return try {
+            try {
                 json.parseToJsonElement(bodyText).jsonObject
             } catch (e: Exception) {
                 throw AIException(AIErrorKind.MALFORMED_RESPONSE, "OpenAI returned a response this app could not parse.", cause = e)
@@ -124,7 +131,8 @@ class OpenAIClient(
             AIErrorKind.INVALID_KEY -> "OpenAI rejected the API key. Check it in Settings, or replace it with a new one."
             AIErrorKind.REVOKED_KEY -> "This OpenAI key has been revoked or the account is deactivated."
             AIErrorKind.INSUFFICIENT_QUOTA -> "The OpenAI account has no remaining credit. Billing is handled in your OpenAI account."
-            AIErrorKind.RATE_LIMITED -> "OpenAI is rate-limiting this key. The turn was not applied — try again shortly."
+            AIErrorKind.RATE_LIMITED -> "OpenAI is rate-limiting this key. The turn was not applied — try again " +
+                (retryAfter?.let { "in ${kotlin.math.max(1L, it / 1000)} seconds." } ?: "shortly.")
             AIErrorKind.MODEL_UNAVAILABLE -> "This account cannot use that model. Choose a different one in Settings."
             AIErrorKind.UNSUPPORTED_FEATURE -> "The selected model does not support something this game needs: ${message.orEmpty()}"
             AIErrorKind.CONTENT_REFUSED -> "OpenAI declined this request: ${message.orEmpty()}"

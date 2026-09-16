@@ -155,6 +155,12 @@ class GameSession(
         )
     }
 
+    /** What an undo would discard, so the player can be warned before it happens. */
+    suspend fun undoPreview(): com.unbound.core.save.UndoPreview? = container.snapshots.describeUndo(gameId)
+
+    /** The same step-back the "undo" command performs, for the screen's own affordance. */
+    suspend fun undo(): SessionResult = undoLastTurn()
+
     private suspend fun undoLastTurn(): SessionResult {
         val game = game() ?: return SessionResult.Ignored
         val preview = container.snapshots.describeUndo(gameId)

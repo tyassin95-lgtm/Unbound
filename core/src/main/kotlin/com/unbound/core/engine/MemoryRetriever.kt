@@ -48,8 +48,14 @@ class MemoryRetriever(
             limit = budget.maxMemories * CANDIDATE_OVERSAMPLE,
         )
 
+        // The semantic seam is optional but real: when an index is supplied its similarity genuinely
+        // feeds the score. (This once read `semanticIndex?.let { _ -> null }`, which always
+        // evaluated to null, so supplying an index changed nothing at all.)
         val scored = candidates
-            .map { scorer.score(it, query, semanticIndex?.let { _ -> null }) }
+            .map { memory ->
+                val semantic = semanticIndex?.similarity(memory.id, query.inputText)
+                scorer.score(memory, query, semantic)
+            }
             .sortedByDescending { it.score }
             .take(budget.maxMemories)
 

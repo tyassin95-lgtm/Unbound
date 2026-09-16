@@ -51,10 +51,14 @@ data class PlayUiState(
     val entries: List<SceneEntry> = emptyList(),
     val suggestedActions: List<String> = emptyList(),
     val thinking: Boolean = false,
+    /** Guards the scrollback pager: two concurrent pages would prepend the same turns twice. */
+    val loadingMore: Boolean = false,
     val error: String? = null,
     val errorRetryable: Boolean = false,
     val developerMode: Boolean = false,
     val canLoadMore: Boolean = false,
+    /** What stepping the world back would cost, or null when there is no restore point yet. */
+    val undoPreview: com.unbound.core.save.UndoPreview? = null,
     /** Rebuilt every turn, so the picture menu always reflects the scene as it stands now. */
     val imageOptions: ImageOptions = ImageOptions(),
     val generatingImage: Boolean = false,
@@ -104,30 +108,77 @@ class PlayViewModel(
     }
 
     private suspend fun refreshWorld() {
+        // Read first, then publish. `update` re-runs its lambda on contention, and re-running this
+        // one would re-issue every query against the database.
+        val game = session.game()
+        val player = session.player()
+        val world = session.world()
+        val location = session.location()
+        val present = session.presentNpcs()
+        val imageOptions = session.imageOptions()
+        val undo = session.undoPreview()
         _state.update {
             it.copy(
-                game = session.game(),
-                player = session.player(),
-                world = session.world(),
-                location = session.location(),
-                presentNpcs = session.presentNpcs(),
-                imageOptions = session.imageOptions(),
+                game = game,
+                player = player,
+                world = world,
+                location = location,
+                presentNpcs = present,
+                imageOptions = imageOptions,
+                undoPreview = undo,
             )
+        }
+    }
+
+    /**
+     * Stepping the world back is destructive and was previously reachable only by typing "undo",
+     * with no warning about what it would cost. The screen now offers it explicitly, and the
+     * player sees how many turns they are about to discard before it happens.
+     */
+    fun undo() {
+        if (_state.value.thinking) return
+        _state.value.undoPreview ?: return
+        _state.update { it.copy(thinking = true, error = null) }
+        viewModelScope.launch {
+            when (val result = session.undo()) {
+                is SessionResult.Undone -> {
+                    val history = session.history(limit = INITIAL_HISTORY)
+                    _state.update { state ->
+                        state.copy(
+                            thinking = false,
+                            entries = history.flatMap { turn -> entriesFor(turn) } + SceneEntry.SystemNote(
+                                nextId(),
+                                "The world has been stepped back to turn ${result.turnNumber}. " +
+                                    "${result.turnsUndone} turn(s) undone.",
+                            ),
+                            suggestedActions = emptyList(),
+                        )
+                    }
+                    refreshWorld()
+                }
+                is SessionResult.LocalAnswer -> _state.update {
+                    it.copy(thinking = false, entries = it.entries + SceneEntry.SystemNote(nextId(), result.text))
+                }
+                else -> _state.update { it.copy(thinking = false) }
+            }
         }
     }
 
     fun loadOlder() {
         val current = _state.value
-        if (!current.canLoadMore) return
+        if (!current.canLoadMore || current.loadingMore) return
+        _state.update { it.copy(loadingMore = true) }
         viewModelScope.launch {
             val alreadyShown = current.entries.count { it is SceneEntry.Narration }
             val older = session.history(offset = alreadyShown, limit = PAGE)
             if (older.isEmpty()) {
-                _state.update { it.copy(canLoadMore = false) }
+                _state.update { it.copy(canLoadMore = false, loadingMore = false) }
                 return@launch
             }
             val prepend = older.flatMap { turn -> entriesFor(turn) }
-            _state.update { it.copy(entries = prepend + it.entries, canLoadMore = older.size >= PAGE) }
+            _state.update {
+                it.copy(entries = prepend + it.entries, canLoadMore = older.size >= PAGE, loadingMore = false)
+            }
         }
     }
 
@@ -223,10 +274,15 @@ class PlayViewModel(
     }
 
     fun retry() {
+        // Without this guard a second tap starts a second turn while the first is still in flight,
+        // which is the one thing the idempotency key cannot protect against.
+        if (_state.value.thinking) return
         val lastAction = _state.value.entries.filterIsInstance<SceneEntry.PlayerAction>().lastOrNull() ?: return
         _state.update { it.copy(error = null, thinking = true) }
         viewModelScope.launch {
-            when (val result = session.submit(lastAction.text)) {
+            // Straight to the turn, not back through the command parser: this is a retry of a
+            // narrative turn, and re-parsing could run a local command instead.
+            when (val result = session.takeTurn(lastAction.text)) {
                 is SessionResult.Narrated -> {
                     _state.update {
                         it.copy(
