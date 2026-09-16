@@ -25,10 +25,28 @@ Both providers get the **same assembled context, the same schema and the same bu
 envelope differs. A provider that received a thinner context would produce a worse world and the
 player would reasonably blame the model rather than the app.
 
-The engine owns one turn schema. Gemini's `responseSchema` is an OpenAPI subset rather than JSON
-Schema, so it is translated at the edge — uppercase types, `additionalProperties` dropped, nullable
-unions folded into `nullable`, property ordering stated explicitly. A second hand-written schema
-would drift, and one provider would quietly start returning a different shape.
+The engine owns one turn schema and it is sent to both providers essentially unchanged. Gemini's
+`responseSchema` takes a subset of standard JSON Schema — lowercase `type`, `properties`,
+`required`, `items`, `enum`, `description`, `additionalProperties` — which is what the engine
+already produces.
+
+This was got wrong first time. The original implementation translated into the older
+OpenAPI-flavoured `Schema` proto (uppercase `"STRING"`, `propertyOrdering`, `format: "enum"`,
+`nullable`), which is no longer the documented dialect. That turned a valid schema into one the
+service would not compile, and **world generation failed with a 500 before a single world could be
+built**. Only two things are adjusted now: `$schema` and friends are dropped, and a
+`["string","null"]` union collapses to `"string"` — the field is already absent from `required`, so
+the union carries no meaning here.
+
+The lesson is in the code as a comment: translating a schema is a liability, and the less of it
+done the better.
+
+If a schema is rejected anyway — the docs warn that "very large or deeply nested schemas may be
+rejected", and world generation sends the largest one this app has — the request is retried once
+with the schema moved into the prompt and `responseMimeType` still set to JSON. Deliberately narrow:
+only for failures that indicate the schema was the problem, never for a refusal, a rejected key or
+a rate limit, which would only fail again differently. What is *accepted* does not loosen — the
+response goes through the same parser and the same validator.
 
 ## Credentials
 

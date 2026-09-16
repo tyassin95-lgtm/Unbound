@@ -131,12 +131,12 @@ class OpenAIClient(
             AIErrorKind.INVALID_KEY -> "OpenAI rejected the API key. Check it in Settings, or replace it with a new one."
             AIErrorKind.REVOKED_KEY -> "This OpenAI key has been revoked or the account is deactivated."
             AIErrorKind.INSUFFICIENT_QUOTA -> "The OpenAI account has no remaining credit. Billing is handled in your OpenAI account."
-            AIErrorKind.RATE_LIMITED -> "OpenAI is rate-limiting this key. The turn was not applied — try again " +
+            AIErrorKind.RATE_LIMITED -> "OpenAI is rate-limiting this key. Nothing was changed — try again " +
                 (retryAfter?.let { "in ${kotlin.math.max(1L, it / 1000)} seconds." } ?: "shortly.")
             AIErrorKind.MODEL_UNAVAILABLE -> "This account cannot use that model. Choose a different one in Settings."
             AIErrorKind.UNSUPPORTED_FEATURE -> "The selected model does not support something this game needs: ${message.orEmpty()}"
             AIErrorKind.CONTENT_REFUSED -> "OpenAI declined this request: ${message.orEmpty()}"
-            AIErrorKind.SERVER_ERROR -> "OpenAI had a server error. The turn was not applied — try again."
+            AIErrorKind.SERVER_ERROR -> "OpenAI had a server error. Nothing was changed — try again."
             else -> message ?: "OpenAI returned HTTP ${response.code}."
         }
         return AIException(kind, friendly, retryAfterMs = retryAfter)

@@ -1,7 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <data-extraction-rules>
     <cloud-backup>
-        <!-- The encrypted OpenAI credential is never eligible for backup off-device. -->
+        <!--
+          Every provider's encrypted credential lives in the file domain, so the whole domain is
+          excluded rather than named files: adding a provider must not be able to leak a key
+          off-device by being forgotten here.
+        -->
         <exclude domain="file" path="." />
         <exclude domain="sharedpref" path="." />
         <exclude domain="database" path="." />

@@ -160,6 +160,31 @@ class SecretScanTest {
         )
     }
 
+    /**
+     * Credentials must not travel to a new device in a backup.
+     *
+     * The rules exclude the whole file domain rather than naming files, because the credential
+     * file name now contains the provider id — naming them would mean a future provider could
+     * leak its key simply by being forgotten here.
+     */
+    @Test
+    fun `no application data is eligible for cloud backup or device transfer`() {
+        val rules = File(repoRoot, "app/src/main/res/xml/data_extraction_rules.xml").readText()
+
+        listOf("cloud-backup", "device-transfer").forEach { section ->
+            val body = rules.substringAfter("<$section>").substringBefore("</$section>")
+            listOf("file", "sharedpref", "database").forEach { domain ->
+                assertTrue(
+                    "$section does not exclude the whole $domain domain",
+                    body.contains("""<exclude domain="$domain" path="." />"""),
+                )
+            }
+        }
+
+        val manifest = File(repoRoot, "app/src/main/AndroidManifest.xml").readText()
+        assertTrue("Backup must be off outright as well", manifest.contains("""android:allowBackup="false""""))
+    }
+
     /** Google's own quickstarts put the key in the URL. A URL is not a private place. */
     @Test
     fun `no client puts a credential in a query parameter`() {

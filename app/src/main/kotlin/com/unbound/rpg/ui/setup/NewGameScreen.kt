@@ -612,7 +612,7 @@ private fun CustomWorldEditor(
             Text("Build this world")
         }
         Text(
-            "This makes one request to OpenAI and usually takes a few seconds.",
+            "This makes one request to your AI provider and usually takes a few seconds.",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 8.dp).fillMaxWidth(),
@@ -692,7 +692,7 @@ private fun OpeningPicker(
             ) {
                 Text(
                     "These were put together from your world rather than written for your " +
-                        "character — OpenAI could not be reached. You can try again, write your " +
+                        "character — your AI provider could not be reached. You can try again, write your " +
                         "own, or take one of these.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onErrorContainer,

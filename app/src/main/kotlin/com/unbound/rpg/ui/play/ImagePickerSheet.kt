@@ -57,7 +57,7 @@ fun ImagePickerSheet(
             }
 
             Text(
-                "Each picture is a separate request on your own OpenAI key.",
+                "Each picture is a separate request on your own key.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

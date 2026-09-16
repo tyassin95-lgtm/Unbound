@@ -88,7 +88,7 @@ fun SavesScreen(
                 ) {
                     Column(Modifier.padding(14.dp)) {
                         Text(
-                            "No OpenAI key is set up yet.",
+                            "No API key is set up yet.",
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Medium,
                         )

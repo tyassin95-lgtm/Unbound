@@ -44,7 +44,25 @@ class GeminiProvider(
     override val providerId = "gemini"
     override val displayName = "Google Gemini"
 
-    override suspend fun generateText(request: AITextRequest): AITextResponse {
+    override suspend fun generateText(request: AITextRequest): AITextResponse = try {
+        attempt(request, withSchema = true)
+    } catch (e: AIException) {
+        // Gemini documents that "very large or deeply nested schemas may be rejected", and the
+        // world-generation schema is the largest this app sends. Rather than fail a world the
+        // player has already described, ask again for JSON without the schema attached and let the
+        // validator do what it always does with a malformed response.
+        //
+        // Deliberately narrow: only for the failures that indicate the *schema* was the problem,
+        // never for a refusal, a bad key or a rate limit. And the response is still parsed and
+        // validated exactly as before — this loosens what is asked for, never what is accepted.
+        if (request.jsonSchema != null && e.kind.suggestsSchemaRejected()) {
+            attempt(request, withSchema = false)
+        } else {
+            throw e
+        }
+    }
+
+    private suspend fun attempt(request: AITextRequest, withSchema: Boolean): AITextResponse {
         val started = System.currentTimeMillis()
 
         val body = buildJsonObject {
@@ -64,6 +82,13 @@ class GeminiProvider(
                                     append(request.dynamicContext)
                                     append("\n\n## PLAYER INPUT\n")
                                     append(request.userInput)
+                                    // Without a schema attached, the shape has to be stated in the
+                                    // prompt instead. The response is validated either way.
+                                    if (!withSchema && request.jsonSchema != null) {
+                                        append("\n\n## REQUIRED JSON SHAPE\n")
+                                        append("Reply with JSON only, matching this schema exactly:\n")
+                                        append(request.jsonSchema.toString())
+                                    }
                                 },
                             )
                         }
@@ -74,9 +99,9 @@ class GeminiProvider(
                 request.maxOutputTokens?.let { put("maxOutputTokens", it) }
                 request.temperature?.let { put("temperature", it) }
                 request.jsonSchema?.let { schema ->
-                    // Gemini's own dialect, translated from the engine's single shared schema.
+                    // JSON either way; the schema itself is dropped on the fallback attempt.
                     put("responseMimeType", "application/json")
-                    put("responseSchema", GeminiSchema.translate(schema))
+                    if (withSchema) put("responseSchema", GeminiSchema.translate(schema))
                 }
             }
         }
@@ -91,7 +116,7 @@ class GeminiProvider(
         if (finishReason == "SAFETY" || finishReason == "PROHIBITED_CONTENT" || finishReason == "BLOCKLIST") {
             throw AIException(
                 AIErrorKind.CONTENT_REFUSED,
-                "Gemini declined this request on safety grounds. The turn was not applied.",
+                "Gemini declined this request on safety grounds. Nothing was changed.",
             )
         }
         if (finishReason == "RECITATION") {
@@ -207,6 +232,17 @@ class GeminiProvider(
         }
     }
 }
+
+/**
+ * Whether the failure looks like the schema rather than the request.
+ *
+ * A 400 that names an unsupported feature, and an INTERNAL error on a request carrying a large
+ * schema, are both consistent with the service declining to compile it. Everything else — a
+ * refusal, a rejected key, an exhausted account, a rate limit — is about the account or the
+ * content, and retrying without the schema would only produce a worse version of the same failure.
+ */
+private fun AIErrorKind.suggestsSchemaRejected(): Boolean =
+    this == AIErrorKind.UNSUPPORTED_FEATURE || this == AIErrorKind.SERVER_ERROR
 
 private fun kotlinx.serialization.json.JsonPrimitive.contentOrNull(): String? =
     runCatching { content }.getOrNull()?.takeIf { it.isNotBlank() && it != "null" }

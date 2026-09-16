@@ -8,99 +8,82 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 /**
- * Translates the engine's JSON Schema into the OpenAPI subset Gemini accepts as a `responseSchema`.
+ * Normalises the engine's JSON Schema for Gemini's `responseSchema`.
  *
- * The engine owns exactly one schema for a turn, and both providers are held to it — that is what
- * "provider parity" has to mean in practice, because a second schema would drift and one provider
- * would quietly start returning a different shape. So the translation happens here, at the edge,
- * and the shared schema stays the single definition.
+ * This deliberately does **not** convert dialects. Gemini's structured output takes a subset of
+ * standard JSON Schema — lowercase `type`, `properties`, `required`, `items`, `enum`,
+ * `description`, `additionalProperties` — which is exactly what the engine already produces for
+ * OpenAI. So the schema is passed through, and only the handful of things Gemini does not accept
+ * are adjusted.
  *
- * What differs, and why each is handled:
+ * An earlier version of this file translated into the older OpenAPI-flavoured `Schema` proto:
+ * uppercase type names (`"STRING"`), `propertyOrdering`, `format: "enum"`, `nullable`. That dialect
+ * is no longer what the API documents, and sending it turned a perfectly valid schema into one the
+ * service rejected — world generation failed with a 500 before a single world could be built. The
+ * lesson is worth keeping: translating a schema is a liability, and the less of it done the better.
  *
- *  * Types are an enum in Gemini's dialect (`"STRING"`), not JSON Schema's lowercase strings.
- *  * `additionalProperties` does not exist there, and sending it is an error rather than a no-op.
- *  * Property order is not implied by the JSON object, so `propertyOrdering` is set explicitly —
- *    it measurably improves adherence on nested objects.
- *  * An empty `properties` map is rejected, so an untyped object degrades to a string.
+ * What is still adjusted, and why:
+ *
+ *  * `$schema` and `$defs`/`$ref` are dropped — the engine emits no references, and the meta key
+ *    is not part of any request.
+ *  * A `["string", "null"]` union becomes plain `"string"`, since the field is already absent from
+ *    `required` and a union type is not in the documented subset.
  */
 object GeminiSchema {
 
-    fun translate(schema: JsonObject): JsonObject = convert(schema)
+    fun translate(schema: JsonObject): JsonObject = normalise(schema)
 
-    private fun convert(node: JsonObject): JsonObject = buildJsonObject {
-        // Read defensively: `type` is a primitive in most nodes and an array in a nullable union,
-        // and reaching for .jsonPrimitive on the array form throws rather than returning null.
-        val declared = (node["type"] as? JsonPrimitive)?.contentOrNull()
+    private fun normalise(node: JsonObject): JsonObject = buildJsonObject {
+        for ((key, value) in node) {
+            when (key) {
+                // Not request fields. The engine emits no references, so nothing is lost.
+                "\$schema", "\$id", "\$defs", "definitions" -> Unit
 
-        // A union with "null" is JSON Schema's way of saying optional; Gemini spells that
-        // `nullable`, and would reject the array form outright.
-        val (type, nullable) = resolveType(node, declared)
-        put("type", type)
-        if (nullable) put("nullable", true)
+                "type" -> put("type", normaliseType(value))
 
-        node["description"]?.let { put("description", it) }
-
-        node["enum"]?.let { enum ->
-            // Gemini only allows an enum on a string.
-            if (type == "STRING") {
-                put("enum", enum)
-                put("format", "enum")
-            }
-        }
-
-        when (type) {
-            "OBJECT" -> {
-                val properties = node["properties"]?.jsonObject
-                if (properties.isNullOrEmpty()) {
-                    // An object with no declared properties is not expressible; describing it as a
-                    // string keeps the response parseable rather than failing the request.
-                    return buildJsonObject {
-                        put("type", "STRING")
-                        node["description"]?.let { put("description", it) }
-                    }
-                }
-                put(
+                "properties" -> put(
                     "properties",
-                    buildJsonObject { properties.forEach { (k, v) -> put(k, convert(v.jsonObject)) } },
+                    buildJsonObject {
+                        value.jsonObject.forEach { (name, sub) -> put(name, normalise(sub.jsonObject)) }
+                    },
                 )
-                node["required"]?.jsonArray?.let { put("required", it) }
-                // Ordering is not carried by a JSON object, and stating it improves adherence.
-                put("propertyOrdering", buildJsonArray { properties.keys.forEach { add(JsonPrimitive(it)) } })
-            }
 
-            "ARRAY" -> {
-                val items = node["items"]?.jsonObject
-                put("items", items?.let { convert(it) } ?: buildJsonObject { put("type", "STRING") })
+                "items" -> put("items", normalise(value.jsonObject))
+
+                // Tuple-typed arrays, kept as-is apart from normalising each member.
+                "prefixItems" -> put(
+                    "prefixItems",
+                    buildJsonArray { value.jsonArray.forEach { add(normalise(it.jsonObject)) } },
+                )
+
+                // anyOf/oneOf members are schemas in their own right.
+                "anyOf", "oneOf" -> put(
+                    key,
+                    buildJsonArray { value.jsonArray.forEach { add(normalise(it.jsonObject)) } },
+                )
+
+                else -> put(key, value)
             }
         }
     }
 
-    /** Returns the Gemini type name and whether the node is nullable. */
-    private fun resolveType(node: JsonObject, declared: String?): Pair<String, Boolean> {
-        val typeNode = node["type"]
-        if (typeNode is JsonArray) {
-            val names = typeNode.mapNotNull { (it as? JsonPrimitive)?.contentOrNull() }
-            val nullable = names.any { it.equals("null", true) }
-            val concrete = names.firstOrNull { !it.equals("null", true) } ?: "string"
-            return geminiType(concrete) to nullable
-        }
-        val inferred = declared ?: if (node["properties"] != null) "object" else "string"
-        return geminiType(inferred) to false
-    }
-
-    private fun geminiType(jsonSchemaType: String): String = when (jsonSchemaType.lowercase()) {
-        "object" -> "OBJECT"
-        "array" -> "ARRAY"
-        "integer" -> "INTEGER"
-        "number" -> "NUMBER"
-        "boolean" -> "BOOLEAN"
-        else -> "STRING"
+    /**
+     * A union with `"null"` collapses to the concrete type.
+     *
+     * The engine writes `["string", "null"]` for an optional field, which OpenAI's strict mode
+     * requires because every property must appear in `required`. Gemini's subset does not document
+     * union types, and the field is optional there by simply not being required — so the union is
+     * flattened rather than risking a rejection over a distinction that carries no meaning here.
+     */
+    private fun normaliseType(value: JsonElement): JsonElement {
+        if (value !is JsonArray) return value
+        val names = value.mapNotNull { (it as? JsonPrimitive)?.contentOrNull() }
+        val concrete = names.firstOrNull { !it.equals("null", ignoreCase = true) }
+        return JsonPrimitive(concrete ?: "string")
     }
 
     private fun JsonPrimitive.contentOrNull(): String? = runCatching { content }.getOrNull()
-
 }

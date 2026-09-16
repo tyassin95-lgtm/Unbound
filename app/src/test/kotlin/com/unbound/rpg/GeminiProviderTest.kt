@@ -106,7 +106,7 @@ class GeminiProviderTest {
         val config = body["generationConfig"]!!.jsonObject
         assertEquals("application/json", config["responseMimeType"]?.jsonPrimitive?.content)
         assertEquals(2000, config["maxOutputTokens"]?.jsonPrimitive?.content?.toInt())
-        assertEquals("OBJECT", config["responseSchema"]!!.jsonObject["type"]?.jsonPrimitive?.content)
+        assertEquals("object", config["responseSchema"]!!.jsonObject["type"]?.jsonPrimitive?.content)
 
         assertTrue(response.text.contains("She does not look up"))
         assertEquals(1200, response.usage.inputTokens)
@@ -206,56 +206,104 @@ class GeminiProviderTest {
     )
 
     @Test
-    fun `the turn schema survives translation into Gemini's dialect`() {
+    fun `the turn schema is passed through, not converted into a stale dialect`() {
         val translated = GeminiSchema.translate(TurnSchema.schema())
 
-        assertEquals("OBJECT", translated["type"]?.jsonPrimitive?.content)
-        // additionalProperties is not part of Gemini's dialect and is an error, not a no-op.
-        assertNull("additionalProperties must not survive", translated["additionalProperties"])
-        assertTrue(translated.containsKey("propertyOrdering"))
+        // Lowercase, as the current API documents. An earlier version emitted "OBJECT", which is
+        // the older OpenAPI-flavoured proto and is what made world generation fail outright.
+        assertEquals("object", translated["type"]?.jsonPrimitive?.content)
+        assertNull("propertyOrdering is not a documented field", translated["propertyOrdering"])
 
         val properties = translated["properties"]!!.jsonObject
-        assertEquals("STRING", properties["narrative"]!!.jsonObject["type"]?.jsonPrimitive?.content)
-        assertEquals("INTEGER", properties["time_advance_minutes"]!!.jsonObject["type"]?.jsonPrimitive?.content)
+        assertEquals("string", properties["narrative"]!!.jsonObject["type"]?.jsonPrimitive?.content)
+        assertEquals("integer", properties["time_advance_minutes"]!!.jsonObject["type"]?.jsonPrimitive?.content)
 
         val events = properties["events"]!!.jsonObject
-        assertEquals("ARRAY", events["type"]?.jsonPrimitive?.content)
-        assertEquals("OBJECT", events["items"]!!.jsonObject["type"]?.jsonPrimitive?.content)
+        assertEquals("array", events["type"]?.jsonPrimitive?.content)
+        assertEquals("object", events["items"]!!.jsonObject["type"]?.jsonPrimitive?.content)
 
-        // Nested objects must be translated too, not left in the original dialect.
-        fun assertNoLowercaseTypes(node: JsonObject) {
-            node["type"]?.jsonPrimitive?.content?.let {
-                assertTrue("Untranslated type '$it'", it == it.uppercase())
+        fun assertEveryNodeIsCurrentDialect(node: JsonObject) {
+            node["type"]?.let { type ->
+                val name = type.jsonPrimitive.content
+                assertEquals("Type names must be lowercase", name.lowercase(), name)
             }
-            assertNull("additionalProperties left behind", node["additionalProperties"])
-            node["properties"]?.jsonObject?.values?.forEach { assertNoLowercaseTypes(it.jsonObject) }
-            node["items"]?.jsonObject?.let { assertNoLowercaseTypes(it) }
+            assertNull("propertyOrdering left behind", node["propertyOrdering"])
+            assertNull("A meta key is not a request field", node["\$schema"])
+            node["properties"]?.jsonObject?.values?.forEach { assertEveryNodeIsCurrentDialect(it.jsonObject) }
+            node["items"]?.jsonObject?.let { assertEveryNodeIsCurrentDialect(it) }
         }
-        assertNoLowercaseTypes(translated)
+        assertEveryNodeIsCurrentDialect(translated)
     }
 
     @Test
-    fun `an enum is carried across only where Gemini allows one`() {
+    fun `descriptions, enums and required lists all survive intact`() {
         val schema = json.parseToJsonElement(
             """{"type":"object","properties":{
-                 "kind":{"type":"string","enum":["A","B"]},
-                 "count":{"type":"integer","enum":[1,2]}
+                 "kind":{"type":"string","enum":["A","B"],"description":"which one"},
+                 "count":{"type":"integer"}
                },"required":["kind"],"additionalProperties":false}""",
         ).jsonObject
 
-        val out = GeminiSchema.translate(schema)["properties"]!!.jsonObject
-        assertEquals(listOf("A", "B"), out["kind"]!!.jsonObject["enum"]!!.jsonArray.map { it.jsonPrimitive.content })
-        assertNull("An enum on a non-string is not expressible", out["count"]!!.jsonObject["enum"])
+        val out = GeminiSchema.translate(schema)
+        val kind = out["properties"]!!.jsonObject["kind"]!!.jsonObject
+
+        assertEquals(listOf("A", "B"), kind["enum"]!!.jsonArray.map { it.jsonPrimitive.content })
+        assertEquals("which one", kind["description"]?.jsonPrimitive?.content)
+        assertEquals(listOf("kind"), out["required"]!!.jsonArray.map { it.jsonPrimitive.content })
+        // Documented as supported, so it is left alone rather than stripped on a guess.
+        assertEquals(false, out["additionalProperties"]?.jsonPrimitive?.content?.toBoolean())
     }
 
     @Test
-    fun `a nullable union becomes Gemini's nullable flag`() {
+    fun `a nullable union collapses to its concrete type`() {
         val schema = json.parseToJsonElement(
             """{"type":"object","properties":{"who":{"type":["string","null"]}}}""",
         ).jsonObject
         val who = GeminiSchema.translate(schema)["properties"]!!.jsonObject["who"]!!.jsonObject
-        assertEquals("STRING", who["type"]?.jsonPrimitive?.content)
-        assertEquals(true, who["nullable"]?.jsonPrimitive?.content?.toBoolean())
+        assertEquals("string", who["type"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `a schema the service will not compile falls back to schema-free JSON`() = runTest {
+        // First attempt refused as an internal error, which is how a rejected schema arrives.
+        server.enqueue(MockResponse().setResponseCode(500).setBody("""{"error":{"code":500,"status":"INTERNAL"}}"""))
+        server.enqueue(MockResponse().setBody(TURN_RESPONSE))
+
+        val response = simpleTurn()
+
+        assertTrue("The world must still get built", response.text.contains("She does not look up"))
+        assertEquals(2, server.requestCount)
+
+        val second = json.parseToJsonElement(
+            server.takeRequest().let { server.takeRequest() }.body.readUtf8(),
+        ).jsonObject
+        val config = second["generationConfig"]!!.jsonObject
+        assertEquals("JSON is still requested", "application/json", config["responseMimeType"]?.jsonPrimitive?.content)
+        assertNull("The schema is what gets dropped", config["responseSchema"])
+        // The shape has to be stated somewhere, so it moves into the prompt.
+        val text = second["contents"]!!.jsonArray[0].jsonObject["parts"]!!.jsonArray[0]
+            .jsonObject["text"]!!.jsonPrimitive.content
+        assertTrue(text.contains("REQUIRED JSON SHAPE"))
+    }
+
+    @Test
+    fun `a refusal or a bad key is never retried without the schema`() = runTest {
+        for (body in listOf(
+            """{"error":{"code":429,"status":"RESOURCE_EXHAUSTED","message":"Quota exceeded for requests per minute."}}""",
+            """{"error":{"code":400,"status":"INVALID_ARGUMENT","message":"API key not valid."}}""",
+        )) {
+            val code = if (body.contains("429")) 429 else 400
+            server.enqueue(MockResponse().setResponseCode(code).setBody(body))
+            val before = server.requestCount
+
+            runCatching { simpleTurn() }
+
+            assertEquals(
+                "Retrying a refusal or a bad key without a schema only fails again, differently",
+                before + 1,
+                server.requestCount,
+            )
+        }
     }
 
     private companion object {

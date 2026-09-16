@@ -95,6 +95,9 @@ class GeminiClient(
      * routinely hit RESOURCE_EXHAUSTED, and "you are out of free requests for now" is a different
      * thing to tell them than "your key is wrong".
      */
+    // The message describes the *request*, never the turn: this client also serves world and
+    // opening generation, and telling a player mid-world-build that "the turn was not applied"
+    // names something that was never happening.
     private fun classify(response: Response, bodyText: String): AIException {
         val error = runCatching { json.parseToJsonElement(bodyText).jsonObject["error"]?.jsonObject }.getOrNull()
         val status = error?.get("status")?.jsonPrimitive?.contentOrNullSafe()
@@ -126,11 +129,11 @@ class GeminiClient(
                 "This Gemini key has no quota left. Free-tier limits reset over time; a billed project removes them."
             AIErrorKind.RATE_LIMITED ->
                 "Gemini is rate-limiting this key — the free tier allows only so many requests a minute. " +
-                    "The turn was not applied, so try again " +
+                    "Try again " +
                     (retryAfter?.let { "in ${kotlin.math.max(1L, it / 1000)} seconds." } ?: "shortly.")
             AIErrorKind.MODEL_UNAVAILABLE -> "This key cannot use that model. Choose a different one in Settings."
             AIErrorKind.UNSUPPORTED_FEATURE -> "Gemini rejected something this game needs: ${message.orEmpty()}"
-            AIErrorKind.SERVER_ERROR -> "Gemini had a server error. The turn was not applied — try again."
+            AIErrorKind.SERVER_ERROR -> "Gemini had a server error. Nothing was changed — try again."
             else -> message ?: "Gemini returned HTTP ${response.code}."
         }
         return AIException(kind, friendly, retryAfterMs = retryAfter)

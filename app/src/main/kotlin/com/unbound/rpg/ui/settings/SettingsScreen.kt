@@ -535,8 +535,9 @@ private fun UsageSection(state: SettingsUiState) {
     UsageRow("Estimated cost", "≈ \$%.4f".format(u.estimatedCostUsd))
     UsageRow("Estimated per turn", "≈ \$%.4f".format(u.averageCostPerTurnUsd))
     Text(
-        "These are local estimates based on published prices and the token counts OpenAI returned. " +
-            "Your OpenAI account is the authority on what you are actually billed. Nothing on this " +
+        "These are local estimates based on published prices and the token counts your provider " +
+            "returned. Your provider's own console is the authority on what you are actually billed. " +
+            "Nothing on this " +
             "screen is sent anywhere.",
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
