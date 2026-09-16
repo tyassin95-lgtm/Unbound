@@ -50,6 +50,7 @@ import com.unbound.rpg.ui.components.SectionHeading
 /** New Game, in the order §12 sets out: character, setting, opening, then the world is built. */
 enum class NewGameStep { CHARACTER, EDIT_CHARACTER, SETTING, CUSTOM_WORLD, OPENING }
 
+@kotlinx.serialization.Serializable
 data class NewGameDraft(
     val template: CharacterTemplate? = null,
     val name: String = "",
@@ -81,6 +82,21 @@ data class NewGameDraft(
     val limits: String = "",
 ) {
     val ageInt: Int? get() = age.toIntOrNull()
+
+    companion object {
+        private val json = kotlinx.serialization.json.Json { encodeDefaults = true; ignoreUnknownKeys = true }
+
+        /**
+         * Character creation is a lot of typing across several steps, and losing it to a rotation
+         * or a backgrounded process is not something a player forgives. The whole draft round-trips
+         * through JSON so every field survives, not just the ones that happen to be primitives.
+         */
+        val Saver: androidx.compose.runtime.saveable.Saver<NewGameDraft, String> =
+            androidx.compose.runtime.saveable.Saver(
+                save = { runCatching { json.encodeToString(serializer(), it) }.getOrNull() },
+                restore = { runCatching { json.decodeFromString(serializer(), it) }.getOrNull() },
+            )
+    }
     val valid: Boolean
         get() = name.isNotBlank() && (ageInt ?: 0) >= 18 && appearance.isNotBlank() && seed != null
 
@@ -105,7 +121,9 @@ fun NewGameScreen(
     onDismissError: () -> Unit,
 ) {
     var step by rememberSaveable { mutableStateOf(NewGameStep.CHARACTER) }
-    var draft by remember { mutableStateOf(NewGameDraft()) }
+    // Saveable, not merely remembered. The step survived a rotation while everything the player
+    // had typed did not, so they landed back on step three with an empty character.
+    var draft by rememberSaveable(stateSaver = NewGameDraft.Saver) { mutableStateOf(NewGameDraft()) }
 
     // Adopt the generated purse and possessions, but never overwrite a number the player typed.
     LaunchedEffect(suggestions) {

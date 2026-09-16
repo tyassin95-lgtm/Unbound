@@ -12,6 +12,7 @@ import com.unbound.core.model.Tone
  * authored content and letting the world grow outward from the player (§18) gives a better opening
  * and costs nothing.
  */
+@kotlinx.serialization.Serializable
 data class SeedLocation(
     val key: String,
     val name: String,
@@ -22,6 +23,7 @@ data class SeedLocation(
     val hidden: List<String> = emptyList(),
 )
 
+@kotlinx.serialization.Serializable
 data class SeedNpc(
     val key: String,
     val name: String,
@@ -36,6 +38,7 @@ data class SeedNpc(
     val factionKey: String? = null,
 )
 
+@kotlinx.serialization.Serializable
 data class SeedFaction(
     val key: String,
     val name: String,
@@ -44,6 +47,7 @@ data class SeedFaction(
     val reputation: String,
 )
 
+@kotlinx.serialization.Serializable
 data class SeedThread(
     val title: String,
     val description: String,
@@ -53,6 +57,7 @@ data class SeedThread(
     val involvedKeys: List<String> = emptyList(),
 )
 
+@kotlinx.serialization.Serializable
 data class SeedWorld(
     val id: String,
     val name: String,
