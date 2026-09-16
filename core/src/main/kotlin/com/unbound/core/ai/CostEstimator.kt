@@ -1,6 +1,7 @@
 package com.unbound.core.ai
 
 import com.unbound.core.model.RequestType
+import com.unbound.core.engine.UsageAggregate
 import com.unbound.core.model.UsageRecord
 
 /**
@@ -17,7 +18,7 @@ class CostEstimator(private val catalog: Map<String, ModelProfile>) {
         return if (record.requestType == RequestType.IMAGE) {
             profile.imageCostEach ?: 0.0
         } else {
-            profile.estimateCost(record.inputTokens, record.outputTokens, record.cachedTokens) ?: 0.0
+            profile.estimateCost(record.inputTokens.toLong(), record.outputTokens.toLong(), record.cachedTokens.toLong()) ?: 0.0
         }
     }
 
@@ -42,6 +43,43 @@ class CostEstimator(private val catalog: Map<String, ModelProfile>) {
             cacheHitRatio = records.sumOf { it.inputTokens.toLong() }.let { total ->
                 if (total == 0L) 0.0 else records.sumOf { it.cachedTokens.toLong() }.toDouble() / total
             },
+        )
+    }
+
+    /**
+     * The same summary built from per-model rollups rather than from every record. This is what the
+     * usage screen uses: a total that stays a total no matter how long the campaign runs.
+     */
+    fun summariseAggregates(aggregates: List<UsageAggregate>): CostSummary {
+        if (aggregates.isEmpty()) return CostSummary()
+
+        val turns = aggregates.filter { it.requestType == RequestType.NARRATIVE_TURN }
+        fun cost(a: UsageAggregate): Double {
+            val profile = catalog[a.modelId] ?: return 0.0
+            return if (a.requestType == RequestType.IMAGE) {
+                (profile.imageCostEach ?: 0.0) * a.requests
+            } else {
+                profile.estimateCost(a.inputTokens, a.outputTokens, a.cachedTokens) ?: 0.0
+            }
+        }
+
+        val requests = aggregates.sumOf { it.requests }
+        val turnRequests = turns.sumOf { it.requests }
+        val inputTokens = aggregates.sumOf { it.inputTokens }
+        return CostSummary(
+            requests = requests,
+            narrativeTurns = turnRequests,
+            imageRequests = aggregates.filter { it.requestType == RequestType.IMAGE }.sumOf { it.requests },
+            inputTokens = inputTokens,
+            outputTokens = aggregates.sumOf { it.outputTokens },
+            cachedTokens = aggregates.sumOf { it.cachedTokens },
+            estimatedCostUsd = aggregates.sumOf { cost(it) },
+            averageCostPerTurnUsd = if (turnRequests == 0) 0.0 else turns.sumOf { cost(it) } / turnRequests,
+            averageInputTokensPerTurn = if (turnRequests == 0) 0 else (turns.sumOf { it.inputTokens } / turnRequests).toInt(),
+            averageOutputTokensPerTurn = if (turnRequests == 0) 0 else (turns.sumOf { it.outputTokens } / turnRequests).toInt(),
+            averageLatencyMs = if (requests == 0) 0 else aggregates.sumOf { it.totalLatencyMs } / requests,
+            failures = aggregates.sumOf { it.failures },
+            cacheHitRatio = if (inputTokens == 0L) 0.0 else aggregates.sumOf { it.cachedTokens }.toDouble() / inputTokens,
         )
     }
 

@@ -360,9 +360,24 @@ class InMemoryWorldStore : WorldStore {
             outputTokens = rows.sumOf { it.outputTokens.toLong() },
             cachedTokens = rows.sumOf { it.cachedTokens.toLong() },
             imageRequests = rows.count { it.requestType == RequestType.IMAGE },
-            estimatedCostUsd = rows.sumOf { it.estimatedCostUsd },
             failures = rows.count { !it.success },
             averageLatencyMs = rows.map { it.latencyMs }.average().toLong(),
         )
     }
+
+    override suspend fun usageByModel(gameId: String?): List<com.unbound.core.engine.UsageAggregate> =
+        usage.filter { gameId == null || it.gameId == gameId }
+            .groupBy { it.modelId to it.requestType }
+            .map { (key, rows) ->
+                com.unbound.core.engine.UsageAggregate(
+                    modelId = key.first,
+                    requestType = key.second,
+                    requests = rows.size,
+                    inputTokens = rows.sumOf { it.inputTokens.toLong() },
+                    outputTokens = rows.sumOf { it.outputTokens.toLong() },
+                    cachedTokens = rows.sumOf { it.cachedTokens.toLong() },
+                    failures = rows.count { !it.success },
+                    totalLatencyMs = rows.sumOf { it.latencyMs },
+                )
+            }
 }

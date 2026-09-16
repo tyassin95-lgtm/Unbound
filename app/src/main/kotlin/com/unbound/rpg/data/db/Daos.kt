@@ -305,13 +305,29 @@ interface UsageDao {
                COALESCE(SUM(outputTokens), 0) AS outputTokens,
                COALESCE(SUM(cachedTokens), 0) AS cachedTokens,
                COALESCE(SUM(CASE WHEN requestType = 'IMAGE' THEN 1 ELSE 0 END), 0) AS imageRequests,
-               COALESCE(SUM(estimatedCostUsd), 0.0) AS estimatedCostUsd,
                COALESCE(SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END), 0) AS failures,
                COALESCE(AVG(latencyMs), 0) AS averageLatencyMs
         FROM usage_records WHERE (:gameId IS NULL OR gameId = :gameId)
         """,
     )
     suspend fun totals(gameId: String?): UsageTotalsRow
+
+    @Query(
+        """
+        SELECT modelId,
+               requestType,
+               COUNT(*) AS requests,
+               COALESCE(SUM(inputTokens), 0) AS inputTokens,
+               COALESCE(SUM(outputTokens), 0) AS outputTokens,
+               COALESCE(SUM(cachedTokens), 0) AS cachedTokens,
+               COALESCE(SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END), 0) AS failures,
+               COALESCE(SUM(latencyMs), 0) AS totalLatencyMs
+        FROM usage_records
+        WHERE (:gameId IS NULL OR gameId = :gameId)
+        GROUP BY modelId, requestType
+        """,
+    )
+    suspend fun byModel(gameId: String?): List<UsageByModelRow>
     @Query("DELETE FROM usage_records WHERE gameId = :gameId") suspend fun deleteForGame(gameId: String)
 }
 
@@ -321,7 +337,17 @@ data class UsageTotalsRow(
     val outputTokens: Long,
     val cachedTokens: Long,
     val imageRequests: Int,
-    val estimatedCostUsd: Double,
     val failures: Int,
     val averageLatencyMs: Long,
+)
+
+data class UsageByModelRow(
+    val modelId: String,
+    val requestType: String,
+    val requests: Int,
+    val inputTokens: Long,
+    val outputTokens: Long,
+    val cachedTokens: Long,
+    val failures: Int,
+    val totalLatencyMs: Long,
 )

@@ -40,11 +40,11 @@ data class ModelProfile(
     val supportsImages: Boolean get() = ModelCapability.IMAGE_GENERATION in capabilities
     val supportsTemperature: Boolean get() = ModelCapability.TEMPERATURE in capabilities
 
-    fun estimateCost(inputTokens: Int, outputTokens: Int, cachedTokens: Int = 0): Double? {
+    fun estimateCost(inputTokens: Long, outputTokens: Long, cachedTokens: Long = 0): Double? {
         val inCost = inputCostPerMillion ?: return null
         val outCost = outputCostPerMillion ?: return null
         val cachedCost = cachedInputCostPerMillion ?: inCost
-        val fresh = (inputTokens - cachedTokens).coerceAtLeast(0)
+        val fresh = (inputTokens - cachedTokens).coerceAtLeast(0L)
         return (fresh * inCost + cachedTokens * cachedCost + outputTokens * outCost) / 1_000_000.0
     }
 }

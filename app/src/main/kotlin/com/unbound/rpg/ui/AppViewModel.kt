@@ -89,11 +89,15 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     fun refreshUsage() = viewModelScope.launch {
-        val records = container.store.usageFor(null, 2000)
+        // Rolled up in SQL. Loading the most recent 2,000 records and adding them up was only a
+        // total until the 2,001st request, after which the screen understated what the player had
+        // actually spent — on their own key.
+        val aggregates = container.store.usageByModel(null)
+        val cacheBytes = container.images.cacheSizeBytes()
         _settings.update {
             it.copy(
-                usage = container.estimator().summarise(records),
-                imageCacheBytes = container.images.cacheSizeBytes(),
+                usage = container.estimator().summariseAggregates(aggregates),
+                imageCacheBytes = cacheBytes,
             )
         }
     }

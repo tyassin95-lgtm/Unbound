@@ -194,6 +194,13 @@ interface WorldStore {
     suspend fun recordUsage(usage: UsageRecord)
     suspend fun usageFor(gameId: String?, limit: Int = 500): List<UsageRecord>
     suspend fun usageTotals(gameId: String?): UsageTotals
+
+    /**
+     * Usage rolled up per model and request type, so a total can be computed from a handful of
+     * rows instead of every record ever written. The screen used to load the most recent 2,000
+     * records and add them up, which quietly stopped being a total at request 2,001.
+     */
+    suspend fun usageByModel(gameId: String?): List<UsageAggregate>
 }
 
 data class UsageTotals(
@@ -202,7 +209,18 @@ data class UsageTotals(
     val outputTokens: Long = 0,
     val cachedTokens: Long = 0,
     val imageRequests: Int = 0,
-    val estimatedCostUsd: Double = 0.0,
     val failures: Int = 0,
     val averageLatencyMs: Long = 0,
+)
+
+/** One model, one request type: everything the cost estimate needs, already summed. */
+data class UsageAggregate(
+    val modelId: String,
+    val requestType: com.unbound.core.model.RequestType,
+    val requests: Int,
+    val inputTokens: Long,
+    val outputTokens: Long,
+    val cachedTokens: Long,
+    val failures: Int,
+    val totalLatencyMs: Long,
 )

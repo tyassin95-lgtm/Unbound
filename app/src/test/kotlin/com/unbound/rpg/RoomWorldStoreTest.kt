@@ -342,6 +342,44 @@ class RoomWorldStoreTest {
     }
 
     @Test
+    fun `usage rolls up per model in SQL, and the total stays a total`() = runTest {
+        val game = newGame()
+        repeat(40) { pipeline.execute(game.id, "I look around.") }
+        images(game.id)
+
+        val byModel = store.usageByModel(game.id)
+        assertTrue("Rollups must be few, not one row per request", byModel.size <= 4)
+        assertEquals(
+            "Every request must be accounted for exactly once",
+            store.usageTotals(game.id).requests,
+            byModel.sumOf { it.requests },
+        )
+        assertEquals(
+            store.usageTotals(game.id).inputTokens,
+            byModel.sumOf { it.inputTokens },
+        )
+
+        // The estimate must agree with the record-by-record one, which is the definition it replaces.
+        val catalog = com.unbound.core.testing.MockAIProvider.DEFAULT_MODELS.associateBy { it.id }
+        val estimator = com.unbound.core.ai.CostEstimator(catalog)
+        val fromRecords = estimator.summarise(store.usageFor(game.id, 10_000))
+        val fromRollup = estimator.summariseAggregates(byModel)
+        assertEquals(fromRecords.requests, fromRollup.requests)
+        assertEquals(fromRecords.inputTokens, fromRollup.inputTokens)
+        assertEquals(fromRecords.estimatedCostUsd, fromRollup.estimatedCostUsd, 1e-9)
+    }
+
+    private suspend fun images(gameId: String) {
+        // A second request type, so the rollup has to group by more than the model.
+        store.recordUsage(
+            com.unbound.core.model.UsageRecord(
+                id = ids(), gameId = gameId, turnId = null, timestampMs = clock(),
+                requestType = com.unbound.core.model.RequestType.IMAGE, modelId = "mock-image",
+            ),
+        )
+    }
+
+    @Test
     fun `usage totals aggregate in SQL`() = runTest {
         val game = newGame()
         repeat(5) { pipeline.execute(game.id, "I look around.") }

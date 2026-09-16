@@ -272,7 +272,21 @@ class RoomWorldStore(private val db: UnboundDatabase) : WorldStore {
         return UsageTotals(
             requests = row.requests, inputTokens = row.inputTokens, outputTokens = row.outputTokens,
             cachedTokens = row.cachedTokens, imageRequests = row.imageRequests,
-            estimatedCostUsd = row.estimatedCostUsd, failures = row.failures, averageLatencyMs = row.averageLatencyMs,
+            failures = row.failures, averageLatencyMs = row.averageLatencyMs,
         )
     }
+
+    override suspend fun usageByModel(gameId: String?): List<com.unbound.core.engine.UsageAggregate> =
+        db.usage().byModel(gameId).map { row ->
+            com.unbound.core.engine.UsageAggregate(
+                modelId = row.modelId,
+                requestType = com.unbound.core.model.RequestType.valueOf(row.requestType),
+                requests = row.requests,
+                inputTokens = row.inputTokens,
+                outputTokens = row.outputTokens,
+                cachedTokens = row.cachedTokens,
+                failures = row.failures,
+                totalLatencyMs = row.totalLatencyMs,
+            )
+        }
 }
