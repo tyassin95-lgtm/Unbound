@@ -7,6 +7,7 @@ import com.unbound.core.memory.RetrievalBudget
 import com.unbound.core.memory.RetrievalQuery
 import com.unbound.core.memory.RetrievedContext
 import com.unbound.core.memory.SemanticIndex
+import com.unbound.core.memory.SummaryRecord
 import com.unbound.core.model.Importance
 
 /**
@@ -64,14 +65,52 @@ class MemoryRetriever(
             limit = budget.maxOlderImportantEvents * 2,
         ).let { events -> rankOlderEvents(events, query).take(budget.maxOlderImportantEvents) }
 
-        val summaries = store.summaries(query.gameId, budget.maxSummaries)
+        // The history the player shares with whoever this turn is about. Any importance: a first
+        // meeting is not a dramatic event, and it is exactly what gets asked about later.
+        val recentIds = recent.map { it.id }.toSet() + older.map { it.id }.toSet()
+        val sharedHistory = if (query.focusEntityIds.isEmpty()) {
+            emptyList()
+        } else {
+            store.eventsInvolving(query.gameId, query.focusEntityIds, budget.maxSharedHistoryEvents * 3)
+                .filterNot { it.id in recentIds }
+                .let { events -> spreadOverTime(events, budget.maxSharedHistoryEvents) }
+        }
 
         return RetrievedContext(
             memories = scored,
             recentEvents = recent.sortedBy { it.sequence },
             olderImportantEvents = older.sortedBy { it.sequence },
-            summaries = summaries,
+            sharedHistory = sharedHistory.sortedBy { it.sequence },
+            summaries = chapters(query.gameId, budget),
         )
+    }
+
+    /**
+     * Keeps the beginning of a relationship, not just the end of it.
+     *
+     * Taking the most recent N would mean that after a hundred turns with someone, nothing about
+     * how the two of you met survives. So the oldest few are kept deliberately, and the remainder
+     * of the budget goes to what happened lately.
+     */
+    private fun spreadOverTime(events: List<GameEvent>, limit: Int): List<GameEvent> {
+        if (events.size <= limit) return events
+        val bySequence = events.sortedBy { it.sequence }
+        val earliest = (limit / 3).coerceAtLeast(1)
+        return (bySequence.take(earliest) + bySequence.takeLast(limit - earliest)).distinctBy { it.id }
+    }
+
+    /**
+     * The first chapter plus the most recent ones: where the story started, and where it is now.
+     * Taking only the newest would lose the opening of a long campaign, which is the half a player
+     * is most likely to ask about.
+     */
+    private suspend fun chapters(gameId: String, budget: RetrievalBudget): List<SummaryRecord> {
+        if (budget.maxSummaries <= 0) return emptyList()
+        val all = store.summaries(gameId, MAX_SUMMARY_SCAN)
+        if (all.size <= budget.maxSummaries) return all.sortedBy { it.coversToTurn }
+        val oldest = all.minByOrNull { it.coversToTurn }
+        val newest = all.sortedByDescending { it.coversToTurn }.take(budget.maxSummaries - 1)
+        return (listOfNotNull(oldest) + newest).distinctBy { it.id }.sortedBy { it.coversToTurn }
     }
 
     private fun rankOlderEvents(events: List<GameEvent>, query: RetrievalQuery): List<GameEvent> {
@@ -112,5 +151,6 @@ class MemoryRetriever(
 
     private companion object {
         const val CANDIDATE_OVERSAMPLE = 6
+        const val MAX_SUMMARY_SCAN = 60
     }
 }

@@ -45,8 +45,17 @@ one line, keeping the source event ids. Canonical events are never touched.
 
 ## Layer D — Summaries
 
-Chapter, session, NPC-history, location-history and faction-history digests. Convenience only —
-never authoritative over state or the ledger.
+Chapter digests, built **deterministically from the event ledger** every 20 turns by
+`ChapterSummariser`. Convenience only — never authoritative over state or the ledger.
+
+They are assembled from event summaries that were already validated when they were written, and
+cost nothing. Asking a model to summarise every twenty turns would be a recurring charge on the
+player's own key for something the ledger already knows, and it would risk inventing history — the
+one thing this architecture exists to prevent. A quiet stretch produces no chapter at all, so
+filler cannot crowd out real ones.
+
+Retrieval takes the **first** chapter plus the most recent ones. Taking only the newest would lose
+the opening of a long campaign, which is the half a player is most likely to ask about.
 
 ---
 
@@ -86,8 +95,27 @@ and developer mode shows the retrieved ids.
 
 ### 3. Budget
 
-Hard caps, applied regardless: 14 memories, 12 recent events, 6 older important events, 8 NPCs, 6
+Hard caps, applied regardless: 14 memories, 12 recent events, 6 older important events, 8 shared-history events, 8 NPCs, 6
 knowledge facts per NPC, 6 threads, 4 rumors, 3 summaries.
+
+### Shared history
+
+A fourth, separately-budgeted event query: **what the player and the people in this scene have
+actually done together**, at any importance.
+
+It exists because the other three cannot answer "how did we meet?". A first meeting is neither
+recent nor dramatic, so it falls outside both the recency window and the importance filter. The
+oldest few events of a relationship are kept deliberately and the rest of the budget goes to what
+happened lately — taking only the most recent would mean that after a hundred turns with someone,
+nothing about how you met survives.
+
+Events are rendered with both an absolute in-world stamp and a relative one (`(d12 19:40, 3 days
+ago)`). "Three days ago" cannot answer "what did we do on the twelfth?", and a bare date cannot
+convey how long ago that feels.
+
+Each NPC also carries **why** they feel as they do — the last few reasons from their relationship
+history. Without those the model is told someone is resentful and has to invent a cause, which is
+how fabricated history gets in.
 
 ### Why not embeddings
 

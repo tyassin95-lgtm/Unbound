@@ -72,16 +72,20 @@ class PlayViewModel(
     private var entrySeq = 0
     private fun nextId() = "e${++entrySeq}"
 
+    /**
+     * The opening turn has no player input — it was staged, not typed — so it contributes narration
+     * only. Echoing a blank bubble, or the staging instruction itself, is not what happened.
+     */
+    private fun entriesFor(turn: com.unbound.core.model.TurnRecord): List<SceneEntry> = buildList {
+        if (turn.playerInput.isNotBlank()) add(SceneEntry.PlayerAction(nextId(), turn.playerInput))
+        add(SceneEntry.Narration(nextId(), turn.narrative, turn.turnNumber, turn.playerDialogue))
+    }
+
     init {
         viewModelScope.launch {
             // Only the most recent turns are materialised; older ones page in on scroll (§64).
             val history = session.history(limit = INITIAL_HISTORY)
-            val entries = history.flatMap { turn ->
-                listOf(
-                    SceneEntry.PlayerAction(nextId(), turn.playerInput),
-                    SceneEntry.Narration(nextId(), turn.narrative, turn.turnNumber, turn.playerDialogue),
-                )
-            }
+            val entries = history.flatMap { turn -> entriesFor(turn) }
             _state.update {
                 it.copy(
                     loading = false,
@@ -122,12 +126,7 @@ class PlayViewModel(
                 _state.update { it.copy(canLoadMore = false) }
                 return@launch
             }
-            val prepend = older.flatMap { turn ->
-                listOf(
-                    SceneEntry.PlayerAction(nextId(), turn.playerInput),
-                    SceneEntry.Narration(nextId(), turn.narrative, turn.turnNumber, turn.playerDialogue),
-                )
-            }
+            val prepend = older.flatMap { turn -> entriesFor(turn) }
             _state.update { it.copy(entries = prepend + it.entries, canLoadMore = older.size >= PAGE) }
         }
     }
@@ -177,12 +176,7 @@ class PlayViewModel(
                     _state.update { state ->
                         state.copy(
                             thinking = false,
-                            entries = history.flatMap { turn ->
-                                listOf(
-                                    SceneEntry.PlayerAction(nextId(), turn.playerInput),
-                                    SceneEntry.Narration(nextId(), turn.narrative, turn.turnNumber, turn.playerDialogue),
-                                )
-                            } + SceneEntry.SystemNote(
+                            entries = history.flatMap { turn -> entriesFor(turn) } + SceneEntry.SystemNote(
                                 nextId(),
                                 "The world has been stepped back to turn ${result.turnNumber}. " +
                                     "${result.turnsUndone} turn(s) undone.",

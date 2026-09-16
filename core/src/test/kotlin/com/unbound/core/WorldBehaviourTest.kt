@@ -14,6 +14,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -313,10 +314,15 @@ class JournalTest {
             journal.people.any { p -> p.knownFacts.any { it.contains(maraSecret.statement) } },
         )
 
-        // Hidden threads drive the simulation but are not shown until the player learns of them.
-        val hidden = w.store.allThreads(game.id, 50).filter { it.visibility == ThreadVisibility.HIDDEN }
-        assertTrue(hidden.isNotEmpty())
-        assertTrue(journal.threads.none { entry -> hidden.any { it.id == entry.id } })
+        // A hidden thread surfaces only once the player runs into someone caught up in it, and
+        // then only as something suspected — talking to Mara is not the same as being told.
+        val encountered = journal.threads.singleOrNull()
+        assertNotNull("Meeting Mara should surface the situation she is caught in", encountered)
+        assertTrue("...as a suspicion, not as established fact", encountered!!.uncertain)
+
+        // Anything the player has had nothing to do with stays out of the journal entirely.
+        val untouched = w.store.allThreads(game.id, 50).filter { it.visibility == ThreadVisibility.HIDDEN }
+        assertTrue(journal.threads.none { entry -> untouched.any { it.id == entry.id } })
     }
 
     @Test

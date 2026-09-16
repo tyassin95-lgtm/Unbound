@@ -213,6 +213,7 @@ fun NewGameScreen(
                         draft = draft,
                         onChange = { draft = it },
                         openings = suggestions.openings,
+                        openingsFailed = suggestions.failed,
                         loadingOpenings = (creation as? CreationState.Working)?.stage == CreationStage.FINDING_OPENINGS,
                         busy = creation.busy,
                         onRegenerate = { onGenerateOpenings(draft) },
@@ -620,6 +621,7 @@ private fun OpeningPicker(
     draft: NewGameDraft,
     onChange: (NewGameDraft) -> Unit,
     openings: List<OpeningOption>,
+    openingsFailed: Boolean,
     loadingOpenings: Boolean,
     busy: Boolean,
     onRegenerate: () -> Unit,
@@ -664,6 +666,23 @@ private fun OpeningPicker(
         )
         Spacer(Modifier.height(10.dp))
 
+        if (openingsFailed && !loadingOpenings) {
+            Surface(
+                color = MaterialTheme.colorScheme.errorContainer,
+                shape = MaterialTheme.shapes.medium,
+                modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
+            ) {
+                Text(
+                    "These were put together from your world rather than written for your " +
+                        "character — OpenAI could not be reached. You can try again, write your " +
+                        "own, or take one of these.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier.padding(12.dp),
+                )
+            }
+        }
+
         if (loadingOpenings) {
             repeat(3) { OpeningPlaceholder() }
         } else {
@@ -701,10 +720,10 @@ private fun OpeningPicker(
                 }
             }
 
-            if (openings.isNotEmpty()) {
-                TextButton(onClick = onRegenerate, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
-                    Text("Show me different ones")
-                }
+            // Always available, never conditional on there being something to replace. When the
+            // list came back empty this button was hidden too, which left no way out of the step.
+            TextButton(onClick = onRegenerate, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+                Text(if (openingsFailed) "Try again" else "Show me different ones")
             }
         }
 

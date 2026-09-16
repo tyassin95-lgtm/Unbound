@@ -10,6 +10,7 @@ import com.unbound.core.knowledge.KnowledgeRecord
 import com.unbound.core.ledger.EventType
 import com.unbound.core.ledger.GameEvent
 import com.unbound.core.ledger.KnowledgeScope
+import com.unbound.core.memory.ChapterSummariser
 import com.unbound.core.memory.MemoryExtractor
 import com.unbound.core.memory.MemoryRecord
 import com.unbound.core.memory.MemoryVisibility
@@ -62,15 +63,23 @@ class TurnPipeline(
 ) {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true; coerceInputValues = true }
     private val memoryExtractor = MemoryExtractor(idFactory)
+    private val chapterSummariser = ChapterSummariser(idFactory)
 
     /**
      * @param idempotencyKey pass the *same* key when retrying a failed turn. A turn that already
      *   committed under this key is returned as-is rather than applied twice (§45).
      */
+    /**
+     * @param directive a staging instruction that is *context*, not something the protagonist did.
+     *   The opening scene uses it. Passing it as player input instead — as this once did — puts a
+     *   wall of GM instructions in the player's log and makes the situation compete with canonical
+     *   state for the model's attention, which canonical state wins.
+     */
     suspend fun execute(
         gameId: String,
         playerInput: String,
         idempotencyKey: String = idFactory(),
+        directive: String? = null,
     ): TurnOutcome {
         // An idempotency key identifies at most one turn row, ever. A retry *resumes* that row
         // rather than opening a second one — otherwise two rows share a key and the replay check
@@ -105,7 +114,7 @@ class TurnPipeline(
         store.upsertTurn(pendingTurn)
 
         val assembly = try {
-            assembleContext(game, world, player, playerInput)
+            assembleContext(game, world, player, playerInput, directive)
         } catch (e: Exception) {
             store.upsertTurn(pendingTurn.copy(status = TurnStatus.FAILED, errorMessage = "Context assembly failed: ${e.message}"))
             return TurnOutcome.Failure("Could not assemble the world state for this turn.", AIErrorKind.UNKNOWN, retryable = true)
@@ -118,7 +127,7 @@ class TurnPipeline(
             modelId = game.textModelId,
             stableSystemPrompt = PromptModules.stableSystemPrompt(),
             dynamicContext = if (guardClause == null) assembly.dynamicContext else assembly.dynamicContext + "\n\n## " + guardClause,
-            userInput = playerInput,
+            userInput = if (directive != null) DIRECTIVE_INPUT else playerInput,
             jsonSchema = TurnSchema.schema(),
             schemaName = "unbound_turn",
             maxOutputTokens = config.maxOutputTokens,
@@ -197,6 +206,7 @@ class TurnPipeline(
         world: WorldRecord,
         player: PlayerRecord,
         playerInput: String,
+        directive: String? = null,
     ): Assembly {
         val location = store.getLocation(game.id, player.currentLocationId)
             ?: error("Player is at unknown location ${player.currentLocationId}")
@@ -267,6 +277,7 @@ class TurnPipeline(
             worldNotes = emptyList(),
             nearbyLocations = nearby,
             repetitionWarning = repetition,
+            directive = directive,
         )
 
         val reachable = (location.exits.values + location.nearbyLocationIds + location.id).toSet()
@@ -637,7 +648,19 @@ class TurnPipeline(
             if (created.currentLocationId == updatedPlayer.currentLocationId) {
                 introducedIntoScene += created.id
             }
-            emit(EventType.NPC_INTRODUCED, "Met ${created.name}, ${created.occupation.ifBlank { "age ${created.age}" }}.", Importance.LOW, targetId = created.id)
+            // Meeting someone is exactly the kind of thing both parties remember, and "how did we
+            // meet?" is a question that gets asked hundreds of turns later. At LOW this fell below
+            // the memorable threshold and no record of the meeting survived at all.
+            emit(
+                EventType.NPC_INTRODUCED,
+                "${updatedPlayer.name} first met ${created.name}" +
+                    (if (created.occupation.isNotBlank()) ", ${created.occupation}" else "") +
+                    ", at ${assembly.context.location.name} on ${newWorldTime.display()}.",
+                Importance.MEDIUM,
+                actorId = Ids.PLAYER,
+                targetId = created.id,
+                related = listOf(created.id),
+            )
         }
 
         // --- npc actions --------------------------------------------------------------------------
@@ -692,6 +715,13 @@ class TurnPipeline(
                     }
                     threadEdits[id] = existing.copy(
                         status = status,
+                        // Advancing a situation on-screen means the player is in it, so it stops
+                        // being something happening quietly in the background.
+                        visibility = if (existing.visibility == ThreadVisibility.HIDDEN) {
+                            ThreadVisibility.KNOWN
+                        } else {
+                            existing.visibility
+                        },
                         description = dto.description.ifBlank { existing.description },
                         lastActivityWorldMinutes = newWorldTime.totalMinutes,
                         momentum = if (status == ThreadStatus.ADVANCING) (existing.momentum + 15).coerceAtMost(100) else existing.momentum,
@@ -709,6 +739,19 @@ class TurnPipeline(
                     )
                 }
             }
+        }
+
+        // --- thread discovery ----------------------------------------------------------------------
+        // A world's own running situations start hidden: they drive the simulation before the player
+        // knows they exist. Nothing ever revealed them, so they stayed out of the journal forever.
+        // Meeting someone caught up in one is how a player learns of it.
+        val encounteredIds = assembly.context.presentNpcs.map { it.id }.toSet() +
+            npcEdits.keys + events.mapNotNull { it.targetId } + events.mapNotNull { it.actorId }
+        for (thread in assembly.openThreads) {
+            if (thread.visibility != ThreadVisibility.HIDDEN) continue
+            if (threadEdits.containsKey(thread.id)) continue
+            if (thread.involvedEntityIds.none { it in encounteredIds }) continue
+            threadEdits[thread.id] = thread.copy(visibility = ThreadVisibility.SUSPECTED)
         }
 
         // --- scene presence -----------------------------------------------------------------------
@@ -871,6 +914,22 @@ class TurnPipeline(
         if (threadEdits.isNotEmpty()) store.upsertThreads(threadEdits.values)
         store.appendEvents(events)
 
+        // Close a chapter every so often, from the ledger alone. Free, and it is what lets turn 400
+        // still say something about turns 1-20.
+        if (ChapterSummariser.closesChapter(turn.turnNumber)) {
+            val from = turn.turnNumber - ChapterSummariser.CHAPTER_TURNS + 1
+            val window = store.eventsPage(game.id, 0, CHAPTER_EVENT_SCAN)
+                .filter { it.turnId != null }
+                .sortedBy { it.sequence }
+            chapterSummariser.summarise(
+                gameId = game.id,
+                fromTurn = from,
+                toTurn = turn.turnNumber,
+                events = window.filter { it.worldMinutes >= turn.worldMinutesBefore - CHAPTER_LOOKBACK_MINUTES },
+                nowWorldMinutes = newWorldTime.totalMinutes,
+            )?.let { store.upsertSummaries(listOf(it)) }
+        }
+
         val completedTurn = turn.copy(
             narrative = response.narrative,
             status = TurnStatus.COMPLETE,
@@ -969,6 +1028,13 @@ class TurnPipeline(
     private companion object {
         /** How many turns a character stays "in play" after last appearing. */
         const val RECENTLY_SEEN_TURNS = 2
+
+        /** Bounded scan for the chapter digest; a chapter is 20 turns, never thousands of events. */
+        /** Shown in place of a GM staging instruction, which is not something the player said. */
+        const val DIRECTIVE_INPUT = "Begin."
+
+        const val CHAPTER_EVENT_SCAN = 600
+        const val CHAPTER_LOOKBACK_MINUTES = 60L * 24 * 60
     }
 
     private object CommandParserHolder {

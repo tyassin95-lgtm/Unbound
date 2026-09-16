@@ -1,10 +1,10 @@
 # Testing
 
-138 tests, 0 failures. No test makes a network call or needs an API key.
+149 tests, 0 failures. No test makes a network call or needs an API key.
 
 ```bash
-./gradlew :core:test            # 111 tests — engine, pure JVM, ~3s
-./gradlew :app:testDebugUnitTest # 27 tests — Room on real SQLite, creation, security
+./gradlew :core:test            # 118 tests — engine, pure JVM, ~4s
+./gradlew :app:testDebugUnitTest # 31 tests — Room on real SQLite, creation, security
 ./gradlew test                   # everything
 ```
 
@@ -28,7 +28,9 @@
 | `KnowledgeScopeTest` | 2 | 0.0s | secrets and rumors |
 | `LongTermMemoryTest` | 1 | 0.2s | the §94 scenario across 120 turns |
 | `NarrativeFormatterTest` | 13 | 0.0s | speech and message styling; no text is ever lost |
+| `ContinuityTest` | 7 | 0.6s | recall across 100+ turns, chapters, thread discovery |
 | `ScenePresenceTest` | 8 | 0.0s | who counts as being in the room |
+| `OpeningDirectiveTest` | 4 | 0.1s | the chosen opening governs the opening scene |
 | `SceneParticipationTest` | 6 | 0.1s | characters stay in the scene they are in |
 | `WorldSanitiserTest` | 11 | 0.0s | generated worlds treated as untrusted input |
 | `GameCreatorTest` | 7 | 0.1s | creation progress ordering, failure recovery |
@@ -103,7 +105,19 @@ Not hypothetical — each of these was caught by a failing test during developme
    now resolved from the narrative and written back. Two further bugs surfaced underneath: the
    world simulator undid any move the story had just made, and characters were created *after*
    knowledge and memory were derived, so anyone introduced could never witness their own scene.
-6. **Rejection did not reject.** The validator reported impossible knowledge and dangling
+6. **Three subsystems were wired up and dead**, found by auditing the continuity complaint:
+   `eventsInvolving` was implemented in the store contract and both implementations and never
+   called; `upsertSummaries` was only ever reached by save/restore, so memory Layer D was inert and
+   "earlier chapters" was permanently empty; and thread visibility was set to HIDDEN at world
+   creation and never changed, so a world's own running situations never reached the journal.
+   `NPC_INTRODUCED` was also emitted below the memorable threshold, so **first meetings were never
+   remembered at all** — exactly the "how did we meet" case.
+7. **The opening did not govern the opening.** The chosen situation was passed as the player's
+   typed action, so it competed with the canonical clock and weather it was meant to override, and
+   lost. It was also echoed into the log as a wall of GM instructions.
+8. **Openings could dead-end.** A generated world ships no authored hooks, so a failed openings
+   call left an empty list — and the retry button was drawn only when the list was non-empty.
+9. **Rejection did not reject.** The validator reported impossible knowledge and dangling
    references, and the pipeline then applied the raw response anyway. `ValidationResult` now carries
    what survived, and the pipeline applies only that.
 7. **Creation progress went idle too early** — reported by a player. The busy state was cleared

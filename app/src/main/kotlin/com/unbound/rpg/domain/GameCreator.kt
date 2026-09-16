@@ -2,6 +2,7 @@ package com.unbound.rpg.domain
 
 import com.unbound.core.ai.AIUsage
 import com.unbound.core.content.OpeningGenerationRequest
+import com.unbound.core.content.FallbackOpenings
 import com.unbound.core.content.OpeningGenerator
 import com.unbound.core.content.OpeningOption
 import com.unbound.core.content.SeedWorld
@@ -99,11 +100,14 @@ class GameCreator(
 
         val generated = result.getOrNull()
         if (generated == null) {
-            // Authored worlds carry static hooks; a generated world may have none, and starting
-            // with no offered opening is a legitimate outcome rather than an error. The purse is
-            // left unset so the player decides rather than inheriting an arbitrary number.
+            // Never leave the player on a step with nothing on it. Authored worlds carry static
+            // hooks; a generated world carries none, so its openings are built from its own
+            // people and situations. The failure is reported either way so it can be retried
+            // rather than silently looking like a world with nothing to offer.
+            val authored = seed.openingHooks.map { hook -> OpeningOption(hook.take(48), hook, "") }
             return OpeningSuggestions(
-                openings = seed.openingHooks.map { hook -> OpeningOption(hook.take(48), hook, "") },
+                openings = authored.ifEmpty { FallbackOpenings.forWorld(seed, spec.name) },
+                failed = true,
             )
         }
         record(RequestType.WORLD_GENERATION, generated.modelId, generated.usage)
@@ -157,7 +161,21 @@ class GameCreator(
         // The opening scene is a network call. The progress state must stay busy across it — this
         // is the ordering the test pins.
         onProgress(CreationState.Working(CreationStage.OPENING_SCENE))
-        val outcome = pipeline.execute(game.id, gameFactory.openingInstruction(seed, opening))
+
+        // Recorded before the scene is narrated, so it is context for the very turn that opens on
+        // it, and so it is still answerable hundreds of turns later.
+        opening?.takeIf { it.isNotBlank() }?.let {
+            store.upsertMemories(listOf(gameFactory.openingMemory(game.id, it, game.worldTime.totalMinutes)))
+        }
+
+        // The staging goes in as a directive rather than as the player's action: it is not
+        // something the protagonist did, and as player input it lost to the canonical state it
+        // was meant to override.
+        val outcome = pipeline.execute(
+            gameId = game.id,
+            playerInput = "",
+            directive = gameFactory.openingInstruction(seed, opening),
+        )
         onProgress(CreationState.Idle)
 
         // The world exists and is entirely playable even if only the first paragraph failed, so
@@ -228,6 +246,8 @@ data class CreationSpec(
  */
 data class OpeningSuggestions(
     val openings: List<OpeningOption> = emptyList(),
+    /** True when these were built locally because the model could not be reached. */
+    val failed: Boolean = false,
     val startingCurrency: Int? = null,
     val startingCurrencyReason: String = "",
     val startingPossessions: List<String> = emptyList(),

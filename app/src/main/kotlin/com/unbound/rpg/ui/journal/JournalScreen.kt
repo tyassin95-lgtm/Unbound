@@ -114,7 +114,14 @@ fun JournalScreen(journal: Journal?, onBack: () -> Unit) {
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.primary,
                                 )
-                                Text("Last seen ${person.lastSeen}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(
+                                    listOfNotNull(
+                                        person.firstMet.takeIf { it.isNotBlank() },
+                                        "last seen ${person.lastSeen}",
+                                    ).joinToString(" · ").replaceFirstChar { it.uppercase() },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
                                 if (person.knownFacts.isNotEmpty()) {
                                     Spacer(Modifier.height(8.dp))
                                     Text("What you know:", style = MaterialTheme.typography.labelSmall)

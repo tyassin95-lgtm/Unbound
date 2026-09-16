@@ -156,6 +156,14 @@ data class RetrievalBudget(
     val maxThreads: Int = 6,
     val maxRumors: Int = 4,
     val maxSummaries: Int = 3,
+    /**
+     * Events involving whoever the turn is about, at any importance.
+     *
+     * Separate from the two event budgets above because it answers a different question. "Recent"
+     * and "important" cannot tell a character how they met the player nine hundred turns ago — that
+     * meeting is neither. This is the slot that makes "how do we know each other?" answerable.
+     */
+    val maxSharedHistoryEvents: Int = 8,
 )
 
 /** The bounded slice of history handed to the prompt builder. */
@@ -163,8 +171,10 @@ data class RetrievedContext(
     val memories: List<ScoredMemory>,
     val recentEvents: List<GameEvent>,
     val olderImportantEvents: List<GameEvent>,
-    val summaries: List<SummaryRecord>,
+    /** What the player and the people in this scene have actually done together, oldest first. */
+    val sharedHistory: List<GameEvent> = emptyList(),
+    val summaries: List<SummaryRecord> = emptyList(),
 ) {
     val memoryIds: List<String> get() = memories.map { it.memory.id }
-    val eventIds: List<String> get() = (recentEvents + olderImportantEvents).map { it.id }
+    val eventIds: List<String> get() = (recentEvents + olderImportantEvents + sharedHistory).map { it.id }
 }

@@ -34,6 +34,8 @@ data class TurnContext(
     val worldNotes: List<WorldNote>,
     val nearbyLocations: List<LocationRecord>,
     val repetitionWarning: String? = null,
+    /** Staging for this turn that the player did not do — currently only the opening scene. */
+    val directive: String? = null,
 )
 
 /**
@@ -45,7 +47,25 @@ data class TurnContext(
  */
 class ContextBuilder {
 
+    private companion object {
+        const val MAX_RELATIONSHIP_REASONS = 3
+    }
+
     fun build(ctx: TurnContext): String = buildString {
+        // First, and stated as canon. The opening situation used to arrive as the player's typed
+        // action, where it lost to the world state it contradicted — the clock said morning, the
+        // situation said evening, and the narration followed the clock.
+        ctx.directive?.let { directive ->
+            section("HOW THIS BEGINS — this is what is true, establish it") {
+                line(directive)
+                line(
+                    "Set the scene to fit this. If it happens at a different hour than the clock " +
+                        "below, advance time to reach that hour; if the weather does not fit, change " +
+                        "it. This situation outranks the starting values.",
+                )
+            }
+        }
+
         section("WORLD") {
             line("Setting: ${ctx.game.settingName} — ${ctx.world.region}, ${ctx.world.era}")
             line(ctx.world.summary)
@@ -138,6 +158,12 @@ class ContextBuilder {
             }
         }
 
+        if (ctx.retrieved.sharedHistory.isNotEmpty()) {
+            section("WHAT YOU HAVE BEEN THROUGH TOGETHER — oldest first") {
+                ctx.retrieved.sharedHistory.forEach { line("- ${describeEvent(it, ctx)}") }
+            }
+        }
+
         if (ctx.retrieved.recentEvents.isNotEmpty()) {
             section("RECENT EVENTS") {
                 ctx.retrieved.recentEvents.forEach { line("- ${describeEvent(it, ctx)}") }
@@ -200,14 +226,35 @@ class ContextBuilder {
             if (npc.emotion.mood != "neutral") append(" | currently ${npc.emotion.mood}")
             if (npc.currentPlan.isNotBlank()) append(" | wants: ${npc.currentPlan}")
             append(" | looks: ${npc.appearance.summary}")
+
+            // How long they have known each other, so "we met last winter" is available rather
+            // than guessed at.
+            npc.firstEncounteredTurn?.let { append(" | first met on turn $it") }
+            npc.lastSeenWorldMinutes?.let { minutes ->
+                append(", last seen ${ctx.game.worldTime.describeGapSince(com.unbound.core.model.WorldTime(minutes))}")
+            }
+
+            // The reasons behind the feelings. Without these the model is told an NPC is
+            // resentful and has to invent why, which is how fabricated history gets in.
+            val reasons = rel?.history?.takeLast(MAX_RELATIONSHIP_REASONS)?.map { it.reason }?.filter { it.isNotBlank() }
+            if (!reasons.isNullOrEmpty()) {
+                append("\n    because: ")
+                append(reasons.joinToString("; "))
+            }
         } else {
             append(" | at ${npc.currentLocationId}")
         }
     }
 
+    /**
+     * Both an absolute stamp and a relative one. "Three days ago" cannot answer "what did we do on
+     * the twelfth?", and a bare date cannot convey how long ago that feels — a turn's worth of
+     * context needs both, and together they cost about twenty characters.
+     */
     private fun describeEvent(e: GameEvent, ctx: TurnContext): String {
-        val age = ctx.game.worldTime.describeGapSince(com.unbound.core.model.WorldTime(e.worldMinutes))
-        return "($age) ${e.summary}"
+        val at = com.unbound.core.model.WorldTime(e.worldMinutes)
+        val age = ctx.game.worldTime.describeGapSince(at)
+        return "(d%d %02d:%02d, %s) %s".format(at.absoluteDay + 1, at.hour, at.minute, age, e.summary)
     }
 
     private fun StringBuilder.section(title: String, body: StringBuilder.() -> Unit) {

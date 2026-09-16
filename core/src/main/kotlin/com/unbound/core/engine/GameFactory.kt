@@ -257,16 +257,44 @@ class GameFactory(
     }
 
     /**
-     * The opening prompt. Kept separate from [createGame] so that world creation always succeeds
-     * offline and only the prose depends on the network (§63).
+     * The opening scene's staging.
+     *
+     * The player's chosen situation comes **first** and is stated as fact. When this was appended
+     * mid-paragraph inside a list of GM directions, and delivered as the player's typed action, the
+     * model reliably ignored it in favour of the canonical clock and weather it contradicted.
      */
     fun openingInstruction(seed: SeedWorld, hook: String?): String = buildString {
-        append("Open the campaign. Establish the place, the hour, the weather, the sounds and smells, ")
-        append("who holds power here and who is suffering for it, what ordinary life looks like, and ")
-        append("who is physically nearby. Put one concrete pressure in front of the player. ")
-        if (!hook.isNullOrBlank()) append("Begin from this situation: $hook ")
+        if (!hook.isNullOrBlank()) {
+            appendLine("The story begins here:")
+            appendLine(hook.trim())
+            appendLine()
+            appendLine(
+                "Open on exactly this. Every detail of it is true and must appear in the scene — " +
+                    "the place, the hour, who is there, what has just happened. Do not substitute " +
+                    "a different situation and do not merely allude to this one.",
+            )
+            appendLine()
+        }
+        appendLine(
+            "Establish the place, the hour, the weather, the sounds and smells, who holds power " +
+                "here and who is suffering for it, what ordinary life looks like, and who is " +
+                "physically nearby. Put one concrete pressure in front of the player.",
+        )
         append("End at a natural point where the player can act. Do not decide what they do, think or feel.")
     }
+
+    /** Recorded so that hundreds of turns later the story still knows how it started. */
+    fun openingMemory(gameId: String, opening: String, worldMinutes: Long) = MemoryRecord(
+        id = Ids.memory(idFactory()),
+        gameId = gameId,
+        ownerId = MemoryRecord.WORLD_OWNER,
+        text = "How it all started: ${opening.trim()}",
+        entityIds = listOf(Ids.PLAYER),
+        importance = Importance.CRITICAL,
+        createdAtWorldMinutes = worldMinutes,
+        lastReinforcedWorldMinutes = worldMinutes,
+        visibility = MemoryVisibility.WORLD,
+    )
 }
 
 data class NewGameRequest(

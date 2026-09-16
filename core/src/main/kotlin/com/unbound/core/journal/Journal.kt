@@ -22,8 +22,14 @@ class JournalBuilder(private val store: WorldStore) {
         val world = store.getWorld(gameId) ?: error("No world")
         val location = store.getLocation(gameId, player.currentLocationId)
 
+        val factions = store.factions(gameId)
         val relationships = store.relationshipsFrom(gameId, Ids.PLAYER, 200)
-        val knownNpcIds = relationships.filter { it.vector.familiarity > 0 }.map { it.toEntityId }
+        // Anyone actually encountered, not only anyone the relationship engine happened to score.
+        // Meeting someone and never speaking to them left familiarity at zero and kept them out of
+        // the journal entirely, which is not what the player experienced.
+        val encountered = store.persistentNpcs(gameId, 300).filter { it.firstEncounteredTurn != null || it.introduced }
+        val knownNpcIds = (relationships.filter { it.vector.familiarity > 0 }.map { it.toEntityId } +
+            encountered.map { it.id }).distinct()
         val npcs = store.npcsByIds(gameId, knownNpcIds)
         val relByNpc = relationships.associateBy { it.toEntityId }
 
@@ -49,7 +55,11 @@ class JournalBuilder(private val store: WorldStore) {
                 goals = player.goals,
                 condition = player.body.describe(),
                 currency = "${player.currency} ${world.currencyName}",
-                reputation = player.reputation,
+                // Derived from where the player actually stands, rather than a field nothing
+                // ever wrote — the character page used to render an empty map indefinitely.
+                reputation = (player.reputation + factions.filter { it.discovered }
+                    .associate { it.name to it.playerStanding })
+                    .filterValues { it != 0 },
             ),
             inventory = store.itemsOwnedBy(gameId, Ids.PLAYER).map {
                 InventoryEntry(it.id, it.name, it.description, it.condition.name.lowercase(), it.quantity)
@@ -66,6 +76,8 @@ class JournalBuilder(private val store: WorldStore) {
                     lastSeen = npc.lastSeenWorldMinutes?.let {
                         game.worldTime.describeGapSince(com.unbound.core.model.WorldTime(it))
                     } ?: "not since you met",
+                    // How you know them at all — the question players ask most about an old face.
+                    firstMet = npc.firstEncounteredTurn?.let { "met on turn $it" }.orEmpty(),
                     alive = npc.alive,
                     // Only what the *player* has learned about them, at the player's certainty.
                     knownFacts = playerKnowledge.filter { npc.id in it.subjectEntityIds }
@@ -77,7 +89,7 @@ class JournalBuilder(private val store: WorldStore) {
             places = store.discoveredLocations(gameId, 100).map {
                 PlaceEntry(it.id, it.name, it.description, it.condition, it.id == player.currentLocationId, it.canonicalImageId)
             },
-            factions = store.factions(gameId).filter { it.discovered }.map {
+            factions = factions.filter { it.discovered }.map {
                 FactionEntry(it.id, it.name, it.purpose, it.playerStanding, it.playerIsMember, it.publicReputation)
             },
             threads = threads.map {
@@ -176,7 +188,8 @@ data class CharacterPage(
 data class InventoryEntry(val id: String, val name: String, val description: String, val condition: String, val quantity: Int)
 data class PersonEntry(
     val id: String, val name: String, val occupation: String, val appearance: String,
-    val relationship: String, val relationshipScore: Int, val lastSeen: String, val alive: Boolean,
+    val relationship: String, val relationshipScore: Int, val lastSeen: String,
+    val firstMet: String, val alive: Boolean,
     val knownFacts: List<String>, val notes: List<String>, val canonicalImageId: String?,
 )
 data class PlaceEntry(val id: String, val name: String, val description: String, val condition: String, val here: Boolean, val canonicalImageId: String?)

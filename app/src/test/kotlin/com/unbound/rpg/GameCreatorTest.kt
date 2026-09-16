@@ -16,6 +16,7 @@ import com.unbound.rpg.domain.CreationSpec
 import com.unbound.rpg.domain.GameCreator
 import com.unbound.rpg.ui.CreationStage
 import com.unbound.rpg.ui.CreationState
+import com.unbound.core.validate.TurnResponseDto
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -231,5 +232,98 @@ class GameCreatorTest {
         val (_, onProgress) = record()
         val outcome = creator.create(seed, spec, opening = null, onProgress = onProgress) as CreationOutcome.Created
         assertEquals(0L, store.getPlayer(outcome.game.id)!!.currency)
+    }
+}
+
+/**
+ * The opening a player chose or wrote must be the opening they get.
+ *
+ * It used to arrive as the player's typed action, competing with the canonical clock and weather it
+ * was meant to override — and losing. It was also echoed into the log as a wall of GM instructions.
+ */
+class OpeningDirectiveTest {
+
+    private var idCounter = 0
+    private var clockMs = 1_700_000_000_000L
+    private val ids: () -> String = { "id" + (++idCounter) }
+    private val clock: () -> Long = { clockMs += 1000; clockMs }
+
+    private val store = com.unbound.core.testing.InMemoryWorldStore()
+    private val behaviour = com.unbound.core.testing.MockBehaviour()
+    private val provider = com.unbound.core.testing.MockAIProvider(behaviour)
+
+    private val creator = com.unbound.rpg.domain.GameCreator(
+        store = store,
+        gameFactory = com.unbound.core.engine.GameFactory(store, clock, ids),
+        pipeline = com.unbound.core.engine.TurnPipeline(store, provider, clock, ids),
+        worldGenerator = com.unbound.core.content.WorldGenerator(provider),
+        openingGenerator = com.unbound.core.content.OpeningGenerator(provider),
+        clock = clock,
+        idFactory = ids,
+    )
+
+    private val spec = com.unbound.rpg.domain.CreationSpec(
+        name = "Adrian Voss", age = 30, gender = "man",
+        appearance = "Dark hair, green eyes.", personality = "Introvert.",
+        textModelId = "mock-story",
+    )
+
+    private val seed = com.unbound.core.content.Settings.byId("ashmarket")!!
+
+    private val opening =
+        "You are standing around after your shift. The door of a house party bangs and a woman " +
+            "comes out alone, glitter on one cheek."
+
+    @Test
+    fun `the chosen opening reaches the model as canon, not as the player's action`() = runTest {
+        var seenContext = ""
+        var seenInput = ""
+        behaviour.responder = { input ->
+            seenContext = input.context
+            seenInput = input.playerInput
+            TurnResponseDto(narrative = "The door bangs.", timeAdvanceMinutes = 0)
+        }
+
+        creator.create(seed, spec, opening) { }
+
+        assertTrue("The situation must be in the context", seenContext.contains("house party bangs"))
+        assertTrue("...stated as what is true", seenContext.contains("HOW THIS BEGINS"))
+        assertTrue(
+            "...and allowed to override the starting clock and weather it contradicts",
+            seenContext.contains("advance time to reach that hour"),
+        )
+        assertFalse("It is not something the protagonist typed", seenInput.contains("house party"))
+    }
+
+    @Test
+    fun `the staging instruction is never shown as something the player said`() = runTest {
+        behaviour.responder = { TurnResponseDto(narrative = "It begins.", timeAdvanceMinutes = 0) }
+        val outcome = creator.create(seed, spec, opening) { } as CreationOutcome.Created
+
+        val first = store.recentTurns(outcome.game.id, 1).single()
+        assertEquals("No player input, because the player did not type one", "", first.playerInput)
+        assertFalse(first.playerInput.contains("Open the campaign"))
+        assertTrue(first.narrative.isNotBlank())
+    }
+
+    @Test
+    fun `how the story began is remembered`() = runTest {
+        behaviour.responder = { TurnResponseDto(narrative = "It begins.", timeAdvanceMinutes = 0) }
+        val outcome = creator.create(seed, spec, opening) { } as CreationOutcome.Created
+
+        val remembered = store.memoriesOf(outcome.game.id, com.unbound.core.memory.MemoryRecord.WORLD_OWNER, 20)
+        assertTrue(
+            "A campaign must be able to answer 'how did this start' much later",
+            remembered.any { it.text.contains("house party bangs") },
+        )
+    }
+
+    @Test
+    fun `starting with no opening still produces a scene`() = runTest {
+        behaviour.responder = { TurnResponseDto(narrative = "Ashmarket, at eight in the morning.", timeAdvanceMinutes = 0) }
+        val outcome = creator.create(seed, spec, opening = null) { } as CreationOutcome.Created
+
+        assertEquals(1, store.getGame(outcome.game.id)!!.turnNumber)
+        assertTrue(store.recentTurns(outcome.game.id, 1).single().narrative.isNotBlank())
     }
 }

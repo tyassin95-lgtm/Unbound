@@ -170,6 +170,58 @@ data class OpeningGenerationRequest(
 
 data class OpeningOption(val title: String, val situation: String, val pressure: String)
 
+/**
+ * Openings derived from the world itself, with no model call.
+ *
+ * Generated worlds ship no authored hooks, so when the openings call failed the player was left
+ * with an empty list, no explanation, and — because the retry was only drawn when the list was
+ * non-empty — no way out. A world that has people, places and running situations always has
+ * somewhere to start; this builds them from that.
+ */
+object FallbackOpenings {
+
+    fun forWorld(seed: SeedWorld, characterName: String): List<OpeningOption> {
+        val start = seed.locations.firstOrNull { it.key == seed.startLocationKey } ?: seed.locations.firstOrNull()
+        val here = start?.name ?: seed.region
+        val options = mutableListOf<OpeningOption>()
+
+        options += OpeningOption(
+            title = "An ordinary hour",
+            situation = "You are at $here with nothing particular demanding you, which is not a " +
+                "state of affairs that tends to last here.",
+            pressure = "Whatever is already in motion has not stopped for you.",
+        )
+
+        seed.threads.take(2).forEach { thread ->
+            options += OpeningOption(
+                title = thread.title,
+                situation = "You are at $here when you catch the edge of it: ${thread.description.trim()}",
+                pressure = thread.stakes.ifBlank { "Nobody else is going to deal with it." },
+            )
+        }
+
+        seed.npcs.take(2).forEach { npc ->
+            options += OpeningOption(
+                title = "${npc.name} wants a word",
+                situation = "${npc.name} finds you at $here. ${npc.appearance.trim()} " +
+                    "Whatever they came to say, they have not said it yet.",
+                pressure = npc.wants.ifBlank { "They did not come here for nothing." },
+            )
+        }
+
+        if (seed.dangers.isNotEmpty()) {
+            options += OpeningOption(
+                title = "It has already gone wrong",
+                situation = "$characterName is at $here and something has already happened: " +
+                    "${seed.dangers.first()}. You are close enough to it to be involved.",
+                pressure = "There is no version of this where you were not here.",
+            )
+        }
+
+        return options.distinctBy { it.situation }.take(OpeningGenerator.MAX_OPENINGS)
+    }
+}
+
 data class OpeningGenerationResult(
     val openings: List<OpeningOption>,
     /** What this character plausibly has on them, judged from who they are — not a fixed default. */
