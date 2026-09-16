@@ -62,7 +62,6 @@ class RoomWorldStore(private val db: UnboundDatabase) : WorldStore {
         chunked(ids) { db.npcs().byIds(gameId, it) }.map(Mappers::toNpc)
     override suspend fun persistentNpcs(gameId: String, limit: Int) = db.npcs().persistent(gameId, limit).map(Mappers::toNpc)
     override suspend fun allNpcs(gameId: String, limit: Int) = db.npcs().all(gameId, limit).map(Mappers::toNpc)
-    override suspend fun countNpcs(gameId: String) = db.npcs().count(gameId)
     override suspend fun upsertNpcs(npcs: Collection<NpcRecord>) {
         if (npcs.isNotEmpty()) db.npcs().upsertAll(npcs.map(Mappers::toEntity))
     }
@@ -87,7 +86,6 @@ class RoomWorldStore(private val db: UnboundDatabase) : WorldStore {
     // --- items ----------------------------------------------------------------------------------------
     override suspend fun getItem(gameId: String, itemId: String) = db.items().get(gameId, itemId)?.let(Mappers::toItem)
     override suspend fun itemsOwnedBy(gameId: String, ownerId: String) = db.items().ownedBy(gameId, ownerId).map(Mappers::toItem)
-    override suspend fun itemsByIds(gameId: String, ids: Collection<String>) = chunked(ids) { db.items().byIds(gameId, it) }.map(Mappers::toItem)
     override suspend fun itemsAt(gameId: String, locationId: String) = db.items().at(gameId, locationId).map(Mappers::toItem)
     override suspend fun allItems(gameId: String, limit: Int) = db.items().all(gameId, limit).map(Mappers::toItem)
     override suspend fun upsertItems(items: Collection<ItemRecord>) {
@@ -97,7 +95,6 @@ class RoomWorldStore(private val db: UnboundDatabase) : WorldStore {
     // --- threads ---------------------------------------------------------------------------------------
     override suspend fun activeThreads(gameId: String, limit: Int) = db.threads().active(gameId, limit).map(Mappers::toThread)
     override suspend fun allThreads(gameId: String, limit: Int) = db.threads().all(gameId, limit).map(Mappers::toThread)
-    override suspend fun getThread(gameId: String, threadId: String) = db.threads().get(gameId, threadId)?.let(Mappers::toThread)
     override suspend fun upsertThreads(threads: Collection<ThreadRecord>) {
         if (threads.isNotEmpty()) db.threads().upsertAll(threads.map(Mappers::toEntity))
     }
@@ -216,7 +213,6 @@ class RoomWorldStore(private val db: UnboundDatabase) : WorldStore {
 
     // --- turns -----------------------------------------------------------------------------------------------------
     override suspend fun upsertTurn(turn: TurnRecord) = db.turns().upsert(Mappers.toEntity(turn))
-    override suspend fun getTurn(turnId: String) = db.turns().get(turnId)?.let(Mappers::toTurn)
     override suspend fun turnByIdempotencyKey(gameId: String, key: String) =
         db.turns().byIdempotencyKey(gameId, key)?.let(Mappers::toTurn)
     override suspend fun recentTurns(gameId: String, limit: Int) = db.turns().recent(gameId, limit).map(Mappers::toTurn)

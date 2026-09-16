@@ -64,7 +64,6 @@ interface WorldStore {
     suspend fun npcsByIds(gameId: String, ids: Collection<String>): List<NpcRecord>
     suspend fun persistentNpcs(gameId: String, limit: Int = 200): List<NpcRecord>
     suspend fun upsertNpcs(npcs: Collection<NpcRecord>)
-    suspend fun countNpcs(gameId: String): Int
 
     // --- locations ---------------------------------------------------------------------------
     suspend fun getLocation(gameId: String, locationId: String): LocationRecord?
@@ -80,7 +79,6 @@ interface WorldStore {
     // --- items -------------------------------------------------------------------------------
     suspend fun getItem(gameId: String, itemId: String): ItemRecord?
     suspend fun itemsOwnedBy(gameId: String, ownerId: String): List<ItemRecord>
-    suspend fun itemsByIds(gameId: String, ids: Collection<String>): List<ItemRecord>
     suspend fun itemsAt(gameId: String, locationId: String): List<ItemRecord>
     suspend fun upsertItems(items: Collection<ItemRecord>)
 
@@ -92,7 +90,6 @@ interface WorldStore {
     // --- threads -----------------------------------------------------------------------------
     suspend fun activeThreads(gameId: String, limit: Int = 20): List<ThreadRecord>
     suspend fun allThreads(gameId: String, limit: Int = 100): List<ThreadRecord>
-    suspend fun getThread(gameId: String, threadId: String): ThreadRecord?
     suspend fun upsertThreads(threads: Collection<ThreadRecord>)
 
     // --- knowledge ---------------------------------------------------------------------------
@@ -155,7 +152,6 @@ interface WorldStore {
 
     // --- turns --------------------------------------------------------------------------------
     suspend fun upsertTurn(turn: TurnRecord)
-    suspend fun getTurn(turnId: String): TurnRecord?
     suspend fun turnByIdempotencyKey(gameId: String, key: String): TurnRecord?
     suspend fun recentTurns(gameId: String, limit: Int): List<TurnRecord>
     suspend fun turnsPage(gameId: String, offset: Int, limit: Int): List<TurnRecord>

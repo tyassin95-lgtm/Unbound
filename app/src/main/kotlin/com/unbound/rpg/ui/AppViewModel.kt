@@ -56,6 +56,10 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
     private val _exported = MutableStateFlow<String?>(null)
     val exported: StateFlow<String?> = _exported.asStateFlow()
 
+    /** One-shot messages for things that succeed or fail out of sight of the screen. */
+    private val _notice = MutableStateFlow<String?>(null)
+    val notice: StateFlow<String?> = _notice.asStateFlow()
+
     init {
         viewModelScope.launch {
             container.settings.state.collect { s ->
@@ -280,6 +284,8 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
     fun duplicateGame(gameId: String) = viewModelScope.launch {
         val original = container.store.getGame(gameId) ?: return@launch
         runCatching { container.saveSystem.duplicate(gameId, original.title + " (copy)") }
+            .onSuccess { _notice.value = "Copied \"${original.title}\"." }
+            .onFailure { _notice.value = "That save could not be copied: ${it.reason()}" }
         refreshSaves()
     }
 
@@ -292,13 +298,34 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     fun exportGame(gameId: String) = viewModelScope.launch {
-        _exported.value = runCatching { container.saveSystem.export(gameId) }.getOrNull()
+        runCatching { container.saveSystem.export(gameId) }
+            .onSuccess { _exported.value = it }
+            // Silently doing nothing is indistinguishable from a broken button.
+            .onFailure { _notice.value = "That save could not be exported: ${it.reason()}" }
     }
 
+    /**
+     * Imports a save the player picked from their device. A save that cannot be read must say so:
+     * this used to be unreachable from any screen, and swallowed every failure when it was called.
+     */
     fun importGame(text: String) = viewModelScope.launch {
-        runCatching { container.saveSystem.import(text) }
+        _notice.value = importSave(text)
         refreshSaves()
     }
+
+    /** The import itself, separated from the scope that drives it so it can be tested directly. */
+    suspend fun importSave(text: String): String {
+        if (text.isBlank()) return "That file was empty."
+        return runCatching { container.saveSystem.import(text) }
+            .fold(
+                onSuccess = { "Imported \"${it.title}\" as a separate save." },
+                onFailure = { "That file is not an UNBOUND save: ${it.reason()}" },
+            )
+    }
+
+    fun consumeNotice() { _notice.value = null }
+
+    private fun Throwable.reason() = message?.takeIf { it.isNotBlank() } ?: (this::class.simpleName ?: "unknown error")
 
     fun consumeExport() { _exported.value = null }
 

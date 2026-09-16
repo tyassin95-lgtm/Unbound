@@ -70,8 +70,23 @@ fun UnboundApp(container: AppContainer) {
             val saves by appViewModel.saves.collectAsState()
             val context = LocalContext.current
             val exported by appViewModel.exported.collectAsState()
+            val notice by appViewModel.notice.collectAsState()
 
             LaunchedEffect(Unit) { appViewModel.refreshSaves() }
+
+            // Importing goes through the system file picker, so UNBOUND needs no storage
+            // permission and the player keeps their saves wherever they already keep them. The
+            // button used to send them to Settings, which had no import on it at all.
+            val pickSave = androidx.activity.compose.rememberLauncherForActivityResult(
+                androidx.activity.result.contract.ActivityResultContracts.OpenDocument(),
+            ) { uri ->
+                if (uri == null) return@rememberLauncherForActivityResult
+                appViewModel.importGame(
+                    runCatching {
+                        context.contentResolver.openInputStream(uri)?.use { it.readBytes().decodeToString() }
+                    }.getOrNull().orEmpty(),
+                )
+            }
 
             // Handing the save to the OS share sheet keeps UNBOUND out of the storage-permission
             // business entirely, and the player chooses where it lands.
@@ -96,8 +111,10 @@ fun UnboundApp(container: AppContainer) {
                 onDuplicate = appViewModel::duplicateGame,
                 onDelete = appViewModel::deleteGame,
                 onExport = appViewModel::exportGame,
-                onImport = { navController.navigate(Routes.SETTINGS) { launchSingleTop = true } },
+                onImport = { pickSave.launch(arrayOf("application/json", "text/plain", "*/*")) },
                 onSettings = { navController.navigate(Routes.SETTINGS) { launchSingleTop = true } },
+                notice = notice,
+                onNoticeShown = appViewModel::consumeNotice,
             )
         }
 

@@ -34,12 +34,24 @@ fun SavesScreen(
     onExport: (String) -> Unit,
     onImport: () -> Unit,
     onSettings: () -> Unit,
+    /** What just happened to a save, when it happened somewhere the player cannot see. */
+    notice: String? = null,
+    onNoticeShown: () -> Unit = {},
 ) {
     var menuFor by remember { mutableStateOf<String?>(null) }
     var renaming by remember { mutableStateOf<SaveSummary?>(null) }
     var deleting by remember { mutableStateOf<SaveSummary?>(null) }
 
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(notice) {
+        notice?.let {
+            snackbarHostState.showSnackbar(it)
+            onNoticeShown()
+        }
+    }
+
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {

@@ -58,9 +58,6 @@ interface NpcDao {
     @Query("SELECT * FROM npcs WHERE gameId = :gameId LIMIT :limit")
     suspend fun all(gameId: String, limit: Int): List<NpcEntity>
 
-    @Query("SELECT COUNT(*) FROM npcs WHERE gameId = :gameId")
-    suspend fun count(gameId: String): Int
-
     @Upsert suspend fun upsertAll(npcs: Collection<NpcEntity>)
 }
 
@@ -87,7 +84,6 @@ interface ItemDao {
     @Query("DELETE FROM items WHERE gameId = :gameId") suspend fun clearGame(gameId: String)
     @Query("SELECT * FROM items WHERE id = :id AND gameId = :gameId") suspend fun get(gameId: String, id: String): ItemEntity?
     @Query("SELECT * FROM items WHERE gameId = :gameId AND ownerId = :ownerId AND destroyed = 0") suspend fun ownedBy(gameId: String, ownerId: String): List<ItemEntity>
-    @Query("SELECT * FROM items WHERE gameId = :gameId AND id IN (:ids)") suspend fun byIds(gameId: String, ids: Collection<String>): List<ItemEntity>
     @Query("SELECT * FROM items WHERE gameId = :gameId AND locationId = :locationId") suspend fun at(gameId: String, locationId: String): List<ItemEntity>
     @Query("SELECT * FROM items WHERE gameId = :gameId LIMIT :limit") suspend fun all(gameId: String, limit: Int): List<ItemEntity>
     @Upsert suspend fun upsertAll(items: Collection<ItemEntity>)
@@ -100,7 +96,6 @@ interface ThreadDao {
     suspend fun active(gameId: String, limit: Int): List<ThreadEntity>
 
     @Query("SELECT * FROM threads WHERE gameId = :gameId LIMIT :limit") suspend fun all(gameId: String, limit: Int): List<ThreadEntity>
-    @Query("SELECT * FROM threads WHERE id = :id AND gameId = :gameId") suspend fun get(gameId: String, id: String): ThreadEntity?
     @Upsert suspend fun upsertAll(threads: Collection<ThreadEntity>)
 }
 
@@ -252,7 +247,6 @@ interface EventDao {
 @Dao
 interface TurnDao {
     @Upsert suspend fun upsert(turn: TurnEntity)
-    @Query("SELECT * FROM turns WHERE id = :id") suspend fun get(id: String): TurnEntity?
     @Query("SELECT * FROM turns WHERE gameId = :gameId AND idempotencyKey = :key ORDER BY CASE status WHEN 'COMPLETE' THEN 0 ELSE 1 END LIMIT 1")
     suspend fun byIdempotencyKey(gameId: String, key: String): TurnEntity?
 

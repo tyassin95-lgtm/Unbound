@@ -146,7 +146,6 @@ class InMemoryWorldStore : WorldStore {
     override suspend fun persistentNpcs(gameId: String, limit: Int) =
         npcs.values.filter { it.gameId == gameId && it.tier != NpcTier.AMBIENT }.take(limit)
     override suspend fun upsertNpcs(npcs: Collection<NpcRecord>) { npcs.forEach { this.npcs[it.id] = it } }
-    override suspend fun countNpcs(gameId: String) = npcs.values.count { it.gameId == gameId }
 
     // --- locations ---------------------------------------------------------------------------
     override suspend fun getLocation(gameId: String, locationId: String) = locations[locationId]?.takeIf { it.gameId == gameId }
@@ -165,7 +164,6 @@ class InMemoryWorldStore : WorldStore {
     override suspend fun getItem(gameId: String, itemId: String) = items[itemId]?.takeIf { it.gameId == gameId }
     override suspend fun itemsOwnedBy(gameId: String, ownerId: String) =
         items.values.filter { it.gameId == gameId && it.ownerId == ownerId && it.condition != ItemCondition.DESTROYED }
-    override suspend fun itemsByIds(gameId: String, ids: Collection<String>) = ids.mapNotNull { items[it] }.filter { it.gameId == gameId }
     override suspend fun itemsAt(gameId: String, locationId: String) =
         items.values.filter { it.gameId == gameId && it.locationId == locationId }
     override suspend fun upsertItems(items: Collection<ItemRecord>) { items.forEach { this.items[it.id] = it } }
@@ -183,7 +181,6 @@ class InMemoryWorldStore : WorldStore {
         .sortedByDescending { it.importance.weight * 100 + it.momentum }
         .take(limit)
     override suspend fun allThreads(gameId: String, limit: Int) = threads.values.filter { it.gameId == gameId }.take(limit)
-    override suspend fun getThread(gameId: String, threadId: String) = threads[threadId]?.takeIf { it.gameId == gameId }
     override suspend fun upsertThreads(threads: Collection<ThreadRecord>) { threads.forEach { this.threads[it.id] = it } }
 
     // --- knowledge ---------------------------------------------------------------------------
@@ -293,7 +290,6 @@ class InMemoryWorldStore : WorldStore {
 
     // --- turns --------------------------------------------------------------------------------
     override suspend fun upsertTurn(turn: TurnRecord) { turns[turn.id] = turn }
-    override suspend fun getTurn(turnId: String) = turns[turnId]
     override suspend fun turnByIdempotencyKey(gameId: String, key: String) =
         turns.values.filter { it.gameId == gameId && it.idempotencyKey == key }
             .minByOrNull { if (it.status == TurnStatus.COMPLETE) 0 else 1 }

@@ -55,7 +55,6 @@ class CountingWorldStore(private val delegate: WorldStore) : WorldStore {
     override suspend fun npcsByIds(gameId: String, ids: Collection<String>) = track("npcsByIds") { delegate.npcsByIds(gameId, ids) }
     override suspend fun persistentNpcs(gameId: String, limit: Int) = track("persistentNpcs") { delegate.persistentNpcs(gameId, limit) }
     override suspend fun allNpcs(gameId: String, limit: Int) = track("allNpcs") { delegate.allNpcs(gameId, limit) }
-    override suspend fun countNpcs(gameId: String) = track("countNpcs") { delegate.countNpcs(gameId) }
     override suspend fun upsertNpcs(npcs: Collection<NpcRecord>) = track("upsertNpcs") { delegate.upsertNpcs(npcs) }
 
     override suspend fun getLocation(gameId: String, locationId: String) = track("getLocation") { delegate.getLocation(gameId, locationId) }
@@ -70,14 +69,12 @@ class CountingWorldStore(private val delegate: WorldStore) : WorldStore {
 
     override suspend fun getItem(gameId: String, itemId: String) = track("getItem") { delegate.getItem(gameId, itemId) }
     override suspend fun itemsOwnedBy(gameId: String, ownerId: String) = track("itemsOwnedBy") { delegate.itemsOwnedBy(gameId, ownerId) }
-    override suspend fun itemsByIds(gameId: String, ids: Collection<String>) = track("itemsByIds") { delegate.itemsByIds(gameId, ids) }
     override suspend fun itemsAt(gameId: String, locationId: String) = track("itemsAt") { delegate.itemsAt(gameId, locationId) }
     override suspend fun allItems(gameId: String, limit: Int) = track("allItems") { delegate.allItems(gameId, limit) }
     override suspend fun upsertItems(items: Collection<ItemRecord>) = track("upsertItems") { delegate.upsertItems(items) }
 
     override suspend fun activeThreads(gameId: String, limit: Int) = track("activeThreads") { delegate.activeThreads(gameId, limit) }
     override suspend fun allThreads(gameId: String, limit: Int) = track("allThreads") { delegate.allThreads(gameId, limit) }
-    override suspend fun getThread(gameId: String, threadId: String) = track("getThread") { delegate.getThread(gameId, threadId) }
     override suspend fun upsertThreads(threads: Collection<ThreadRecord>) = track("upsertThreads") { delegate.upsertThreads(threads) }
 
     override suspend fun getRelationship(gameId: String, from: String, to: String) = track("getRelationship") { delegate.getRelationship(gameId, from, to) }
@@ -132,7 +129,6 @@ class CountingWorldStore(private val delegate: WorldStore) : WorldStore {
     override suspend fun deleteTurnsAfter(gameId: String, turnNumber: Int) = track("deleteTurnsAfter") { delegate.deleteTurnsAfter(gameId, turnNumber) }
 
     override suspend fun upsertTurn(turn: TurnRecord) = track("upsertTurn") { delegate.upsertTurn(turn) }
-    override suspend fun getTurn(turnId: String) = track("getTurn") { delegate.getTurn(turnId) }
     override suspend fun turnByIdempotencyKey(gameId: String, key: String) = track("turnByIdempotencyKey") { delegate.turnByIdempotencyKey(gameId, key) }
     override suspend fun recentTurns(gameId: String, limit: Int) = track("recentTurns") { delegate.recentTurns(gameId, limit) }
     override suspend fun turnsPage(gameId: String, offset: Int, limit: Int) = track("turnsPage") { delegate.turnsPage(gameId, offset, limit) }
