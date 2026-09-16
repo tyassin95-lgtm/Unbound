@@ -29,14 +29,23 @@ import java.util.UUID
  * constructed lazily so that opening the app does not open the database or touch the Keystore
  * until something actually needs them (§122).
  */
-class AppContainer(context: Context) {
+class AppContainer(
+    context: Context,
+    /**
+     * Seams, not indirection for its own sake. Without them the whole app layer — sessions,
+     * creation, the journal, images — could only be exercised against the real database and the
+     * real OpenAI account, which means it could not be exercised at all.
+     */
+    private val databaseOverride: UnboundDatabase? = null,
+    private val providerOverride: AIProvider? = null,
+) {
 
     private val appContext = context.applicationContext
 
     val clock: () -> Long = { System.currentTimeMillis() }
     val idFactory: () -> String = { UUID.randomUUID().toString().replace("-", "").take(20) }
 
-    val database: UnboundDatabase by lazy { UnboundDatabase.get(appContext) }
+    val database: UnboundDatabase by lazy { databaseOverride ?: UnboundDatabase.get(appContext) }
     val store: WorldStore by lazy { RoomWorldStore(database) }
 
     val credentials: SecureCredentialStore by lazy { SecureCredentialStore(appContext) }
@@ -44,7 +53,7 @@ class AppContainer(context: Context) {
 
     private val openAIClient: OpenAIClient by lazy { OpenAIClient(credentials) }
     val modelCatalog: OpenAIModelCatalog by lazy { OpenAIModelCatalog(openAIClient) }
-    val provider: AIProvider by lazy { OpenAIProvider(openAIClient, modelCatalog) }
+    val provider: AIProvider by lazy { providerOverride ?: OpenAIProvider(openAIClient, modelCatalog) }
 
     val gameFactory: GameFactory by lazy { GameFactory(store, clock, idFactory) }
     val worldGenerator: WorldGenerator by lazy { WorldGenerator(provider) }

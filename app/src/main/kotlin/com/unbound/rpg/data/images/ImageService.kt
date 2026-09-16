@@ -185,6 +185,29 @@ class ImageService(
         store.deleteImageFiles(gameId)
     }
 
+    /**
+     * Deletes the files a save owns. Deleting the save's rows alone leaves every PNG it generated
+     * on disk forever, unreferenced and unreclaimable, which is how a device quietly fills up.
+     * Must be called *before* the rows are deleted, since the rows are what name the files.
+     */
+    suspend fun deleteFilesFor(gameId: String) {
+        store.allImages(gameId).forEach { it.localPath?.let { path -> File(path).delete() } }
+        sweepOrphans()
+    }
+
+    /**
+     * Removes files left behind by a crash between writing a PNG and committing its row, and by any
+     * save deleted before this sweep existed. A file is an orphan when no record names it.
+     */
+    suspend fun sweepOrphans() {
+        val files = cacheDir.listFiles() ?: return
+        val referenced = store.listGames()
+            .flatMap { store.allImages(it.id) }
+            .mapNotNull { it.localPath }
+            .toSet()
+        files.filter { it.isFile && it.absolutePath !in referenced }.forEach { it.delete() }
+    }
+
     fun cacheSizeBytes(): Long = cacheDir.listFiles()?.sumOf { it.length() } ?: 0L
 }
 

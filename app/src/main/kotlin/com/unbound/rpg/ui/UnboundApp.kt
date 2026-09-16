@@ -45,6 +45,7 @@ fun UnboundApp(container: AppContainer) {
         if (container.credentials.hasKey()) Routes.SAVES else Routes.ONBOARDING
     }
 
+    // Every plain navigation is single-top: a double tap on a button must open one screen, not two.
     NavHost(navController = navController, startDestination = start) {
 
         composable(Routes.ONBOARDING) {
@@ -89,14 +90,14 @@ fun UnboundApp(container: AppContainer) {
             SavesScreen(
                 saves = saves,
                 hasCredential = appViewModel.hasCredential(),
-                onContinue = { navController.navigate(Routes.play(it)) },
-                onNewGame = { navController.navigate(Routes.NEW_GAME) },
+                onContinue = { navController.navigate(Routes.play(it)) { launchSingleTop = true } },
+                onNewGame = { navController.navigate(Routes.NEW_GAME) { launchSingleTop = true } },
                 onRename = appViewModel::renameGame,
                 onDuplicate = appViewModel::duplicateGame,
                 onDelete = appViewModel::deleteGame,
                 onExport = appViewModel::exportGame,
-                onImport = { navController.navigate(Routes.SETTINGS) },
-                onSettings = { navController.navigate(Routes.SETTINGS) },
+                onImport = { navController.navigate(Routes.SETTINGS) { launchSingleTop = true } },
+                onSettings = { navController.navigate(Routes.SETTINGS) { launchSingleTop = true } },
             )
         }
 
@@ -161,8 +162,8 @@ fun UnboundApp(container: AppContainer) {
             )
             PlayScreen(
                 viewModel = playViewModel,
-                onOpenJournal = { navController.navigate(Routes.journal(gameId)) },
-                onOpenMenu = { navController.navigate(Routes.SETTINGS) },
+                onOpenJournal = { navController.navigate(Routes.journal(gameId)) { launchSingleTop = true } },
+                onOpenMenu = { navController.navigate(Routes.SETTINGS) { launchSingleTop = true } },
                 onBack = {
                     appViewModel.refreshSaves()
                     navController.popBackStack()

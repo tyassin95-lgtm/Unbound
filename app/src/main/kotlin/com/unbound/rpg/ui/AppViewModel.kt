@@ -67,6 +67,8 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
         // Show whatever is known offline immediately; a live fetch replaces it when asked.
         _settings.update { it.copy(models = container.modelCatalog.knownProfiles()) }
         refreshUsage()
+        // Reclaim anything a crash or an older build left behind, once, at launch.
+        viewModelScope.launch { runCatching { container.images.sweepOrphans() } }
     }
 
     fun hasCredential(): Boolean = container.credentials.hasKey()
@@ -278,6 +280,9 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     fun deleteGame(gameId: String) = viewModelScope.launch {
+        // Files first: the rows are what name them, so deleting the save first would strand every
+        // picture it generated on disk.
+        runCatching { container.images.deleteFilesFor(gameId) }
         container.store.deleteGame(gameId)
         refreshSaves()
     }

@@ -807,6 +807,12 @@ class TurnPipeline(
                 currentLocationId = updatedPlayer.currentLocationId,
                 lastSeenTurn = turn.turnNumber,
                 lastSeenWorldMinutes = newWorldTime.totalMinutes,
+                // Being in a scene with the player *is* meeting them. Only characters the model
+                // invented were stamped as encountered, so anyone the world started with stayed
+                // forever unmet: absent from the journal's people, and never described to the
+                // model as someone the player already knows.
+                firstEncounteredTurn = npc.firstEncounteredTurn ?: turn.turnNumber,
+                introduced = true,
                 // Someone the player has actually dealt with in a scene stops being disposable.
                 tier = if (npc.tier == NpcTier.AMBIENT) NpcTier.SEMI_PERSISTENT else npc.tier,
             )
