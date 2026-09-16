@@ -18,11 +18,11 @@ import com.unbound.core.testing.MockBehaviour
 class TestWorld(
     seedId: String = "ashmarket",
     val behaviour: MockBehaviour = MockBehaviour(),
+    val store: com.unbound.core.engine.WorldStore = InMemoryWorldStore(),
 ) {
     private var idCounter = 0
     private var clockMs = 1_700_000_000_000L
 
-    val store = InMemoryWorldStore()
     val provider = MockAIProvider(behaviour)
     val seed: SeedWorld = Settings.byId(seedId)!!
 

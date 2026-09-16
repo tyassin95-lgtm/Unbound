@@ -163,10 +163,26 @@ interface WorldStore {
     suspend fun pendingTurns(gameId: String): List<TurnRecord>
 
     // --- snapshots ----------------------------------------------------------------------------
+    /**
+     * Removes every entity row for a game while leaving the game itself, its ledger, its turns,
+     * its images and its usage history alone.
+     *
+     * This is what a rollback needs. Undo previously called [deleteGame] and rebuilt from the
+     * snapshot, which also destroyed the player's usage and cost history — records that are not in
+     * a save bundle and could never be restored.
+     */
+    suspend fun clearGameEntities(gameId: String)
+
+    /** Discards turns after [turnNumber]. Paired with [deleteEventsAfterSequence] for a rollback. */
+    suspend fun deleteTurnsAfter(gameId: String, turnNumber: Int)
+
     suspend fun upsertSnapshot(snapshot: SnapshotRecord)
     suspend fun latestSnapshotAtOrBefore(gameId: String, turnNumber: Int): SnapshotRecord?
     suspend fun snapshots(gameId: String, limit: Int = 20): List<SnapshotRecord>
     suspend fun deleteSnapshotsAfter(gameId: String, turnNumber: Int)
+
+    /** Removes specific snapshots. Pruning needs this; deleting by turn range cannot express it. */
+    suspend fun deleteSnapshots(ids: Collection<String>)
 
     // --- images / usage -------------------------------------------------------------------------
     suspend fun upsertImage(image: ImageRecord)

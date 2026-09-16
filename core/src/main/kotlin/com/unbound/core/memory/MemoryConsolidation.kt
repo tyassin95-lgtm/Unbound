@@ -2,6 +2,7 @@ package com.unbound.core.memory
 
 import com.unbound.core.ledger.GameEvent
 import com.unbound.core.model.Importance
+import com.unbound.core.model.WorldTime
 
 /**
  * Turns raw events into durable memories (§90) using only local logic — no model call. An event is
@@ -62,55 +63,84 @@ class MemoryExtractor(private val idFactory: () -> String) {
 data class MemoryReconciliation(val insert: MemoryRecord?, val reinforce: MemoryRecord?)
 
 /**
- * Periodic compaction. Groups a single owner's low-importance memories about the same subject into
- * one line, and keeps the originals' event ids so nothing in the ledger is orphaned.
+ * Periodic compaction of one owner's memories (§90).
  *
- * Canonical events are never touched — only the derived memory layer is compacted (§90).
+ * Two things were wrong with the first version. It was never called from anywhere, so memories grew
+ * for the life of a campaign — two hundred turns of ordinary conversation produced six hundred rows
+ * and every one of them stayed a retrieval candidate forever. And it only ever considered `LOW`
+ * memories, while almost everything a witness records is `MEDIUM`, so even when called it would
+ * have compacted nearly nothing.
+ *
+ * It now works to a **per-owner cap**: once someone remembers more than [ConsolidationConfig.maxPerOwner]
+ * things, the oldest unimportant ones are merged into dated digests. `HIGH` and `CRITICAL` memories
+ * are never touched, recent ones are never touched, and the source event ids are carried across, so
+ * nothing in the ledger is orphaned and nothing that mattered is lost.
  */
 class MemoryConsolidator(private val idFactory: () -> String) {
 
-    fun consolidate(memories: List<MemoryRecord>, nowWorldMinutes: Long, config: ConsolidationConfig = ConsolidationConfig()): ConsolidationPlan {
+    fun consolidate(
+        memories: List<MemoryRecord>,
+        nowWorldMinutes: Long,
+        config: ConsolidationConfig = ConsolidationConfig(),
+    ): ConsolidationPlan {
+        if (memories.size <= config.maxPerOwner) return ConsolidationPlan(emptyList(), emptyList())
+
         val eligible = memories.filter {
-            it.importance.ordinal <= Importance.LOW.ordinal &&
+            it.importance.ordinal <= Importance.MEDIUM.ordinal &&
                 nowWorldMinutes - it.lastReinforcedWorldMinutes > config.minAgeMinutes &&
                 it.consolidatedFromIds.isEmpty()
         }
-        if (eligible.size < config.minGroupSize) return ConsolidationPlan(emptyList(), emptyList())
+        // Compact only the excess, oldest first, so recent and important memories survive intact.
+        val excess = (memories.size - config.maxPerOwner).coerceAtMost(eligible.size)
+        if (excess < config.minGroupSize) return ConsolidationPlan(emptyList(), emptyList())
 
-        val groups = eligible.groupBy { it.ownerId to (it.entityIds.sorted().firstOrNull() ?: it.locationId ?: "misc") }
+        val doomed = eligible.sortedBy { it.lastReinforcedWorldMinutes }.take(excess)
+
         val created = mutableListOf<MemoryRecord>()
         val removed = mutableListOf<String>()
 
-        for ((key, group) in groups) {
+        // Grouped by subject so a digest reads as being about someone, not a list of unrelated days.
+        for ((_, group) in doomed.groupBy { it.entityIds.sorted().firstOrNull() ?: it.locationId ?: "misc" }) {
             if (group.size < config.minGroupSize) continue
-            val (owner, _) = key
-            val text = "Over time: " + group.sortedBy { it.createdAtWorldMinutes }
-                .joinToString("; ") { it.text.trimEnd('.') } + "."
+            val ordered = group.sortedBy { it.createdAtWorldMinutes }
+            val from = WorldTime(ordered.first().createdAtWorldMinutes)
+            val to = WorldTime(ordered.last().createdAtWorldMinutes)
+            val span = if (from.absoluteDay == to.absoluteDay) {
+                "on day ${from.absoluteDay + 1}"
+            } else {
+                "between days ${from.absoluteDay + 1} and ${to.absoluteDay + 1}"
+            }
+
+            val body = ordered.joinToString("; ") { it.text.trim().trimEnd('.') }
+            val text = "Earlier, $span: $body."
             created += MemoryRecord(
                 id = idFactory(),
-                gameId = group.first().gameId,
-                ownerId = owner,
-                text = if (text.length > config.maxTextLength) text.take(config.maxTextLength - 1) + "…" else text,
-                entityIds = group.flatMap { it.entityIds }.distinct(),
-                locationId = group.mapNotNull { it.locationId }.groupingBy { it }.eachCount().maxByOrNull { it.value }?.key,
-                sourceEventIds = group.flatMap { it.sourceEventIds }.distinct(),
-                importance = Importance.LOW,
-                createdAtWorldMinutes = group.minOf { it.createdAtWorldMinutes },
-                lastReinforcedWorldMinutes = group.maxOf { it.lastReinforcedWorldMinutes },
-                reinforcementCount = group.sumOf { it.reinforcementCount },
-                visibility = group.first().visibility,
-                consolidatedFromIds = group.map { it.id },
+                gameId = ordered.first().gameId,
+                ownerId = ordered.first().ownerId,
+                text = if (text.length > config.maxTextLength) text.take(config.maxTextLength - 1) + "\u2026" else text,
+                entityIds = ordered.flatMap { it.entityIds }.distinct(),
+                locationId = ordered.mapNotNull { it.locationId }.groupingBy { it }.eachCount().maxByOrNull { it.value }?.key,
+                sourceEventIds = ordered.flatMap { it.sourceEventIds }.distinct(),
+                importance = ordered.maxOf { it.importance },
+                createdAtWorldMinutes = ordered.first().createdAtWorldMinutes,
+                lastReinforcedWorldMinutes = ordered.last().lastReinforcedWorldMinutes,
+                reinforcementCount = ordered.sumOf { it.reinforcementCount },
+                visibility = ordered.first().visibility,
+                consolidatedFromIds = ordered.map { it.id },
             )
-            removed += group.map { it.id }
+            removed += ordered.map { it.id }
         }
+
         return ConsolidationPlan(created, removed)
     }
 }
 
 data class ConsolidationConfig(
-    val minGroupSize: Int = 4,
-    val minAgeMinutes: Long = 60L * 24 * 3,
-    val maxTextLength: Int = 400,
+    /** Above this, an owner's oldest unimportant memories start being merged. */
+    val maxPerOwner: Int = 60,
+    val minGroupSize: Int = 3,
+    val minAgeMinutes: Long = 60L * 24,
+    val maxTextLength: Int = 600,
 )
 
 data class ConsolidationPlan(val created: List<MemoryRecord>, val removedIds: List<String>)

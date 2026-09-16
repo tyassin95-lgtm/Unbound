@@ -46,20 +46,25 @@ class InMemoryWorldStore : WorldStore {
     private val images = linkedMapOf<String, ImageRecord>()
     private val usage = mutableListOf<UsageRecord>()
 
-    private var inTransaction = false
+    /**
+     * Transaction membership is a property of the *calling coroutine*, not of the store. A plain
+     * field would let a second coroutine that arrives while the holder is suspended see
+     * `inTransaction == true` and skip the lock, interleaving two transactions — which is exactly
+     * the class of bug these tests exist to catch.
+     */
+    private class InTransaction : kotlin.coroutines.AbstractCoroutineContextElement(Key) {
+        companion object Key : kotlin.coroutines.CoroutineContext.Key<InTransaction>
+    }
 
     override suspend fun <T> transaction(block: suspend () -> T): T {
-        if (inTransaction) return block()
+        if (kotlin.coroutines.coroutineContext[InTransaction] != null) return block()
         return lock.withLock {
             val backup = snapshotAll()
-            inTransaction = true
             try {
-                block()
+                kotlinx.coroutines.withContext(InTransaction()) { block() }
             } catch (t: Throwable) {
                 restore(backup)
                 throw t
-            } finally {
-                inTransaction = false
             }
         }
     }
@@ -115,6 +120,8 @@ class InMemoryWorldStore : WorldStore {
         snapshots.values.removeAll { it.gameId == gameId }
         images.values.removeAll { it.gameId == gameId }
         events.removeAll { it.gameId == gameId }
+        // Matches the Room implementation: the save is gone, so its cost history goes with it.
+        usage.removeAll { it.gameId == gameId }
     }
 
     override suspend fun bumpStateVersion(gameId: String, expectedVersion: Long): Boolean {
@@ -301,6 +308,23 @@ class InMemoryWorldStore : WorldStore {
         turns.values.filter { it.gameId == gameId && it.status in setOf(TurnStatus.PENDING, TurnStatus.AWAITING_COMMIT) }
 
     // --- snapshots ----------------------------------------------------------------------------
+    override suspend fun clearGameEntities(gameId: String) {
+        npcs.values.removeAll { it.gameId == gameId }
+        locations.values.removeAll { it.gameId == gameId }
+        factions.values.removeAll { it.gameId == gameId }
+        items.values.removeAll { it.gameId == gameId }
+        threads.values.removeAll { it.gameId == gameId }
+        relationships.values.removeAll { it.gameId == gameId }
+        knowledge.values.removeAll { it.gameId == gameId }
+        rumors.values.removeAll { it.gameId == gameId }
+        memories.values.removeAll { it.gameId == gameId }
+        summaries.values.removeAll { it.gameId == gameId }
+    }
+
+    override suspend fun deleteTurnsAfter(gameId: String, turnNumber: Int) {
+        turns.values.removeAll { it.gameId == gameId && it.turnNumber > turnNumber }
+    }
+
     override suspend fun upsertSnapshot(snapshot: SnapshotRecord) { snapshots[snapshot.id] = snapshot }
     override suspend fun latestSnapshotAtOrBefore(gameId: String, turnNumber: Int) =
         snapshots.values.filter { it.gameId == gameId && it.turnNumber <= turnNumber }.maxByOrNull { it.turnNumber }
@@ -309,6 +333,8 @@ class InMemoryWorldStore : WorldStore {
     override suspend fun deleteSnapshotsAfter(gameId: String, turnNumber: Int) {
         snapshots.values.removeAll { it.gameId == gameId && it.turnNumber > turnNumber }
     }
+
+    override suspend fun deleteSnapshots(ids: Collection<String>) { ids.forEach { snapshots.remove(it) } }
 
     // --- images / usage --------------------------------------------------------------------------
     override suspend fun upsertImage(image: ImageRecord) { images[image.id] = image }

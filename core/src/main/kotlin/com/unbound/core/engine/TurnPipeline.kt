@@ -11,6 +11,7 @@ import com.unbound.core.ledger.EventType
 import com.unbound.core.ledger.GameEvent
 import com.unbound.core.ledger.KnowledgeScope
 import com.unbound.core.memory.ChapterSummariser
+import com.unbound.core.memory.MemoryConsolidator
 import com.unbound.core.memory.MemoryExtractor
 import com.unbound.core.memory.MemoryRecord
 import com.unbound.core.memory.MemoryVisibility
@@ -64,6 +65,7 @@ class TurnPipeline(
     private val json = Json { ignoreUnknownKeys = true; isLenient = true; coerceInputValues = true }
     private val memoryExtractor = MemoryExtractor(idFactory)
     private val chapterSummariser = ChapterSummariser(idFactory)
+    private val consolidator = MemoryConsolidator(idFactory)
 
     /**
      * @param idempotencyKey pass the *same* key when retrying a failed turn. A turn that already
@@ -229,7 +231,10 @@ class TurnPipeline(
 
         val openThreads = store.activeThreads(game.id, budget.maxThreads)
 
-        val factions = store.factions(game.id).filter { it.discovered }.take(6)
+        // Read once and reused three ways below. Re-querying per use is how a turn quietly ends up
+        // issuing the same query four times.
+        val allFactions = store.factions(game.id)
+        val factions = allFactions.filter { it.discovered }.take(6)
         val inventory = store.itemsOwnedBy(game.id, player.id)
         val rumors = store.activeRumors(game.id, budget.maxRumors)
 
@@ -254,7 +259,9 @@ class TurnPipeline(
         val relationships = store.relationshipsFrom(game.id, Ids.PLAYER, 60)
             .associateBy { it.toEntityId }
 
-        val nearby = store.locationsByIds(game.id, (location.exits.values + location.nearbyLocationIds).distinct())
+        val reachable = (location.exits.values + location.nearbyLocationIds + location.id).toSet()
+        val referencedLocations = store.locationsByIds(game.id, reachable.toList())
+        val nearby = referencedLocations.filter { it.id != location.id }
 
         val recentTurns = store.recentTurns(game.id, 3)
         val repetition = detectRepetition(recentTurns)
@@ -280,26 +287,31 @@ class TurnPipeline(
             directive = directive,
         )
 
-        val reachable = (location.exits.values + location.nearbyLocationIds + location.id).toSet()
-        val referencedLocations = store.locationsByIds(game.id, reachable)
-
         val validationContext = ValidationContext(
             game = game,
             player = player,
             world = world,
             npcs = (relevantNpcs + present).distinctBy { it.id }.associateBy { it.id },
             locations = (referencedLocations + location).distinctBy { it.id }.associateBy { it.id },
-            factions = store.factions(game.id).associateBy { it.id },
+            factions = allFactions.associateBy { it.id },
             items = (inventory + store.itemsAt(game.id, location.id)).distinctBy { it.id }.associateBy { it.id },
             reachableLocationIds = reachable,
             specialRules = world.specialRules,
             // Everyone and everywhere this campaign actually has, so a reference to someone real
             // but not retrieved this turn is not mistaken for a reference to nobody.
-            knownEntityIds = (persistent.map { it.id } + store.factions(game.id).map { it.id } +
+            knownEntityIds = (persistent.map { it.id } + allFactions.map { it.id } +
                 store.discoveredLocations(game.id, 200).map { it.id }).toSet(),
         )
 
-        return Assembly(context, validationContext, openThreads, query, contextBuilder.build(context))
+        return Assembly(
+            context = context,
+            validationContext = validationContext,
+            openThreads = openThreads,
+            query = query,
+            dynamicContext = contextBuilder.build(context),
+            allNpcs = persistent,
+            allFactions = allFactions,
+        )
     }
 
     private fun detectRepetition(recentTurns: List<TurnRecord>): String? {
@@ -491,10 +503,13 @@ class TurnPipeline(
                 }
 
                 is StateOp.RelationshipChange -> {
-                    val key = RelationshipRecord.key(game.id, op.fromEntityId, op.toEntityId)
+                    // Models reverse the direction freely; normalising here means a reversed pair
+                    // updates the same record rather than creating an orphan nothing reads.
+                    val (from, to) = RelationshipRecord.canonicalKey(game.id, Ids.PLAYER, op.fromEntityId, op.toEntityId)
+                    val key = RelationshipRecord.key(game.id, from, to)
                     val existing = relationshipEdits[key]
-                        ?: store.getRelationship(game.id, op.fromEntityId, op.toEntityId)
-                        ?: RelationshipRecord(key, game.id, op.fromEntityId, op.toEntityId)
+                        ?: store.getRelationship(game.id, from, to)
+                        ?: RelationshipRecord(key, game.id, from, to)
                     relationshipEdits[key] = relationshipEngine.apply(existing, op.changes, op.reason, newWorldTime.totalMinutes)
                     emit(
                         EventType.RELATIONSHIP_CHANGED,
@@ -671,8 +686,10 @@ class TurnPipeline(
             action.movesToLocationId?.let { updated = updated.copy(currentLocationId = it) }
             npcEdits[n.id] = updated
             if (action.becomesHostile) {
-                val key = RelationshipRecord.key(game.id, n.id, Ids.PLAYER)
-                val existing = store.getRelationship(game.id, n.id, Ids.PLAYER) ?: RelationshipRecord(key, game.id, n.id, Ids.PLAYER)
+                val key = RelationshipRecord.key(game.id, Ids.PLAYER, n.id)
+                val existing = relationshipEdits[key]
+                    ?: store.getRelationship(game.id, Ids.PLAYER, n.id)
+                    ?: RelationshipRecord(key, game.id, Ids.PLAYER, n.id)
                 relationshipEdits[key] = relationshipEngine.apply(existing, mapOf("hostility" to 30, "trust" to -20), action.action, newWorldTime.totalMinutes)
                 emit(EventType.NPC_BECAME_HOSTILE, "${n.name} turned on the player.", Importance.HIGH, actorId = n.id, targetId = Ids.PLAYER)
             }
@@ -877,8 +894,12 @@ class TurnPipeline(
                 now = newWorldTime,
                 playerLocationId = updatedPlayer.currentLocationId,
                 weather = updatedWorld.weather,
-                npcs = store.persistentNpcs(game.id, 150).map { npcEdits[it.id] ?: it },
-                factions = store.factions(game.id).map { factionEdits[it.id] ?: it },
+                // The cast as assembly read it, overlaid with this turn's edits and any character
+                // this turn brought into being.
+                npcs = (assembly.allNpcs.map { npcEdits[it.id] ?: it } +
+                    npcEdits.values.filterNot { e -> assembly.allNpcs.any { it.id == e.id } }),
+                factions = (assembly.allFactions.map { factionEdits[it.id] ?: it } +
+                    factionEdits.values.filterNot { e -> assembly.allFactions.any { it.id == e.id } }),
                 threads = assembly.openThreads.map { threadEdits[it.id] ?: it },
                 rumors = store.activeRumors(game.id, 40),
                 engagedThreadIds = threadEdits.keys,
@@ -892,6 +913,17 @@ class TurnPipeline(
         knowledgeRecords += simulation.newKnowledge
         for (note in simulation.notes) {
             emit(note.type, note.summary, note.importance, actorId = note.entityId, locationId = note.locationId, scope = KnowledgeScope.LOCAL_RUMOR)
+        }
+
+        // Feelings soften when nothing happens. Applied only on genuine time skips, and only to
+        // relationships this turn did not touch, so it is bounded and never undoes the scene.
+        if (timeAdvance >= DECAY_THRESHOLD_MINUTES) {
+            store.relationshipsFrom(game.id, Ids.PLAYER, MAX_DECAY_ROWS)
+                .filterNot { relationshipEdits.containsKey(it.id) }
+                .forEach { record ->
+                    val decayed = relationshipEngine.decay(record, newWorldTime.totalMinutes)
+                    if (decayed != record) relationshipEdits[record.id] = decayed
+                }
         }
 
         if (timeAdvance > 0) {
@@ -911,6 +943,20 @@ class TurnPipeline(
             store.upsertRumors(rumorRecords + simulation.rumorUpdates)
         }
         if (newMemories.isNotEmpty() || reinforced.isNotEmpty()) store.upsertMemories(newMemories + reinforced)
+
+        // Compact the tail periodically, for the people this turn actually involved. Without this
+        // an owner's memories grow for the life of the campaign and every one of them stays a
+        // retrieval candidate.
+        if (turn.turnNumber % config.consolidateEveryTurns == 0) {
+            val owners = (presentNpcs.map { it.id } + Ids.PLAYER + MemoryRecord.WORLD_OWNER).distinct()
+            for (owner in owners) {
+                val held = store.memoriesOf(game.id, owner, MAX_CONSOLIDATION_SCAN)
+                val plan = consolidator.consolidate(held, newWorldTime.totalMinutes)
+                if (plan.created.isEmpty() && plan.removedIds.isEmpty()) continue
+                store.upsertMemories(plan.created)
+                store.deleteMemories(plan.removedIds)
+            }
+        }
         if (threadEdits.isNotEmpty()) store.upsertThreads(threadEdits.values)
         store.appendEvents(events)
 
@@ -1021,6 +1067,9 @@ class TurnPipeline(
         val openThreads: List<ThreadRecord>,
         val query: RetrievalQuery,
         val dynamicContext: String,
+        /** Read during assembly and reused by the commit phase rather than re-queried. */
+        val allNpcs: List<NpcRecord>,
+        val allFactions: List<FactionRecord>,
     ) {
         val contextLength: Int get() = dynamicContext.length
     }
@@ -1032,6 +1081,12 @@ class TurnPipeline(
         /** Bounded scan for the chapter digest; a chapter is 20 turns, never thousands of events. */
         /** Shown in place of a GM staging instruction, which is not something the player said. */
         const val DIRECTIVE_INPUT = "Begin."
+
+        /** Below a few hours, nothing has had time to cool off. */
+        const val DECAY_THRESHOLD_MINUTES = 240
+        const val MAX_DECAY_ROWS = 80
+
+        const val MAX_CONSOLIDATION_SCAN = 400
 
         const val CHAPTER_EVENT_SCAN = 600
         const val CHAPTER_LOOKBACK_MINUTES = 60L * 24 * 60
@@ -1048,6 +1103,7 @@ data class PipelineConfig(
     val maxOutputTokens: Int = 2400,
     val maxTimeAdvanceMinutes: Int = 60 * 24 * 14,
     val snapshotEveryTurns: Int = 15,
+    val consolidateEveryTurns: Int = 25,
 )
 
 data class TurnDiagnostics(

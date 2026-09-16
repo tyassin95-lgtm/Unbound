@@ -43,6 +43,7 @@ class MockAIProvider(
     override suspend fun generateText(request: AITextRequest): AITextResponse {
         callCount++
         lastRequest = request
+        if (behaviour.latencyMs > 0) kotlinx.coroutines.delay(behaviour.latencyMs)
 
         behaviour.failWith?.let { kind ->
             if (behaviour.failuresRemaining > 0) {
@@ -137,6 +138,12 @@ class MockBehaviour(
      * and opening generation, which ask for a different shape entirely.
      */
     var rawResponder: ((AITextRequest) -> String)? = null,
+    /**
+     * Suspends for this long before answering. A real model call always suspends; without one the
+     * whole pipeline runs to completion inside a single coroutine resumption, which quietly turns
+     * a concurrency test into a sequential one.
+     */
+    var latencyMs: Long = 0,
 )
 
 /**

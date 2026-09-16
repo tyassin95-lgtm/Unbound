@@ -88,7 +88,20 @@ data class RelationshipRecord(
 ) {
     companion object {
         const val MAX_HISTORY = 24
+
         fun key(gameId: String, from: String, to: String) = "rel_${gameId}_${from}_to_$to"
+
+        /**
+         * The canonical orientation for a player-character relationship.
+         *
+         * There is exactly one record per pair, stored as (player -> character), and its vector
+         * describes **how that character regards the player**. Everything that writes or reads one
+         * must agree on that, because an NPC turning hostile once wrote to (character -> player) —
+         * an orientation nothing queried — so the hostility never reached the prompt or the
+         * journal and the character went on behaving as though nothing had happened.
+         */
+        fun canonicalKey(gameId: String, playerId: String, a: String, b: String): Pair<String, String> =
+            if (a == playerId) playerId to b else if (b == playerId) playerId to a else a to b
     }
 }
 

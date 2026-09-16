@@ -225,11 +225,30 @@ class RoomWorldStore(private val db: UnboundDatabase) : WorldStore {
     override suspend fun pendingTurns(gameId: String) = db.turns().pending(gameId).map(Mappers::toTurn)
 
     // --- snapshots ---------------------------------------------------------------------------------------------------
+    override suspend fun clearGameEntities(gameId: String) {
+        // Join tables go with their parents via CASCADE.
+        db.npcs().clearGame(gameId)
+        db.locations().clearGame(gameId)
+        db.factions().clearGame(gameId)
+        db.items().clearGame(gameId)
+        db.threads().clearGame(gameId)
+        db.relationships().clearGame(gameId)
+        db.knowledge().clearGame(gameId)
+        db.rumors().clearGame(gameId)
+        db.memories().clearGame(gameId)
+        db.summaries().clearGame(gameId)
+    }
+
+    override suspend fun deleteTurnsAfter(gameId: String, turnNumber: Int) = db.turns().deleteAfter(gameId, turnNumber)
+
     override suspend fun upsertSnapshot(snapshot: SnapshotRecord) = db.snapshots().upsert(Mappers.toEntity(snapshot))
     override suspend fun latestSnapshotAtOrBefore(gameId: String, turnNumber: Int) =
         db.snapshots().latestAtOrBefore(gameId, turnNumber)?.let(Mappers::toSnapshot)
     override suspend fun snapshots(gameId: String, limit: Int) = db.snapshots().recent(gameId, limit).map(Mappers::toSnapshot)
     override suspend fun deleteSnapshotsAfter(gameId: String, turnNumber: Int) = db.snapshots().deleteAfter(gameId, turnNumber)
+    override suspend fun deleteSnapshots(ids: Collection<String>) {
+        if (ids.isNotEmpty()) ids.chunked(SQL_CHUNK).forEach { db.snapshots().deleteByIds(it) }
+    }
 
     // --- images / usage ------------------------------------------------------------------------------------------------
     override suspend fun upsertImage(image: ImageRecord) = db.images().upsert(Mappers.toEntity(image))

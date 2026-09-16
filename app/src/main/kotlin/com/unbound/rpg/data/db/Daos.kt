@@ -42,6 +42,7 @@ interface PlayerDao {
 
 @Dao
 interface NpcDao {
+    @Query("DELETE FROM npcs WHERE gameId = :gameId") suspend fun clearGame(gameId: String)
     @Query("SELECT * FROM npcs WHERE id = :id AND gameId = :gameId")
     suspend fun get(gameId: String, id: String): NpcEntity?
 
@@ -65,6 +66,7 @@ interface NpcDao {
 
 @Dao
 interface LocationDao {
+    @Query("DELETE FROM locations WHERE gameId = :gameId") suspend fun clearGame(gameId: String)
     @Query("SELECT * FROM locations WHERE id = :id AND gameId = :gameId") suspend fun get(gameId: String, id: String): LocationEntity?
     @Query("SELECT * FROM locations WHERE gameId = :gameId AND id IN (:ids)") suspend fun byIds(gameId: String, ids: Collection<String>): List<LocationEntity>
     @Query("SELECT * FROM locations WHERE gameId = :gameId AND discovered = 1 LIMIT :limit") suspend fun discovered(gameId: String, limit: Int): List<LocationEntity>
@@ -74,6 +76,7 @@ interface LocationDao {
 
 @Dao
 interface FactionDao {
+    @Query("DELETE FROM factions WHERE gameId = :gameId") suspend fun clearGame(gameId: String)
     @Query("SELECT * FROM factions WHERE id = :id AND gameId = :gameId") suspend fun get(gameId: String, id: String): FactionEntity?
     @Query("SELECT * FROM factions WHERE gameId = :gameId") suspend fun all(gameId: String): List<FactionEntity>
     @Upsert suspend fun upsertAll(factions: Collection<FactionEntity>)
@@ -81,6 +84,7 @@ interface FactionDao {
 
 @Dao
 interface ItemDao {
+    @Query("DELETE FROM items WHERE gameId = :gameId") suspend fun clearGame(gameId: String)
     @Query("SELECT * FROM items WHERE id = :id AND gameId = :gameId") suspend fun get(gameId: String, id: String): ItemEntity?
     @Query("SELECT * FROM items WHERE gameId = :gameId AND ownerId = :ownerId AND destroyed = 0") suspend fun ownedBy(gameId: String, ownerId: String): List<ItemEntity>
     @Query("SELECT * FROM items WHERE gameId = :gameId AND id IN (:ids)") suspend fun byIds(gameId: String, ids: Collection<String>): List<ItemEntity>
@@ -91,6 +95,7 @@ interface ItemDao {
 
 @Dao
 interface ThreadDao {
+    @Query("DELETE FROM threads WHERE gameId = :gameId") suspend fun clearGame(gameId: String)
     @Query("SELECT * FROM threads WHERE gameId = :gameId AND terminal = 0 ORDER BY rank DESC LIMIT :limit")
     suspend fun active(gameId: String, limit: Int): List<ThreadEntity>
 
@@ -101,6 +106,7 @@ interface ThreadDao {
 
 @Dao
 interface RelationshipDao {
+    @Query("DELETE FROM relationships WHERE gameId = :gameId") suspend fun clearGame(gameId: String)
     @Query("SELECT * FROM relationships WHERE gameId = :gameId AND fromEntityId = :from AND toEntityId = :to")
     suspend fun get(gameId: String, from: String, to: String): RelationshipEntity?
 
@@ -115,6 +121,7 @@ interface RelationshipDao {
 
 @Dao
 interface KnowledgeDao {
+    @Query("DELETE FROM knowledge WHERE gameId = :gameId") suspend fun clearGame(gameId: String)
     @Query("SELECT * FROM knowledge WHERE gameId = :gameId AND knowerId = :knowerId ORDER BY learnedAtWorldMinutes DESC LIMIT :limit")
     suspend fun of(gameId: String, knowerId: String, limit: Int): List<KnowledgeEntity>
 
@@ -147,6 +154,7 @@ interface KnowledgeDao {
 
 @Dao
 interface RumorDao {
+    @Query("DELETE FROM rumors WHERE gameId = :gameId") suspend fun clearGame(gameId: String)
     @Query("SELECT * FROM rumors WHERE gameId = :gameId AND virality > 5 ORDER BY virality DESC LIMIT :limit")
     suspend fun active(gameId: String, limit: Int): List<RumorEntity>
     @Query("SELECT * FROM rumors WHERE gameId = :gameId LIMIT :limit") suspend fun all(gameId: String, limit: Int): List<RumorEntity>
@@ -155,6 +163,7 @@ interface RumorDao {
 
 @Dao
 interface MemoryDao {
+    @Query("DELETE FROM memories WHERE gameId = :gameId") suspend fun clearGame(gameId: String)
     /**
      * The retrieval pre-filter. Everything is index-backed and the result is capped before any
      * scoring happens, so the candidate set is bounded no matter how large the campaign is.
@@ -196,6 +205,7 @@ interface MemoryDao {
 
 @Dao
 interface SummaryDao {
+    @Query("DELETE FROM summaries WHERE gameId = :gameId") suspend fun clearGame(gameId: String)
     @Query("SELECT * FROM summaries WHERE gameId = :gameId ORDER BY coversToTurn DESC LIMIT :limit")
     suspend fun recent(gameId: String, limit: Int): List<SummaryEntity>
     @Upsert suspend fun upsertAll(records: Collection<SummaryEntity>)
@@ -269,6 +279,8 @@ interface SnapshotDao {
     suspend fun recent(gameId: String, limit: Int): List<SnapshotEntity>
     @Query("DELETE FROM snapshots WHERE gameId = :gameId AND turnNumber > :turnNumber")
     suspend fun deleteAfter(gameId: String, turnNumber: Int)
+    @Query("DELETE FROM snapshots WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: Collection<String>)
 }
 
 @Dao
