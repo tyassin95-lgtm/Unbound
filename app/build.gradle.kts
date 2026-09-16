@@ -49,6 +49,10 @@ android {
 
     sourceSets["main"].java.srcDirs("src/main/kotlin")
     sourceSets["test"].java.srcDirs("src/test/kotlin")
+    // MigrationTestHelper reads the old schema from the instrumentation context's assets, and
+    // Robolectric serves those from the variant under test. Debug-only, so the release APK does
+    // not carry a couple of hundred kilobytes of schema JSON it has no use for.
+    sourceSets["debug"].assets.srcDir("$projectDir/schemas")
 
     lint {
         abortOnError = false

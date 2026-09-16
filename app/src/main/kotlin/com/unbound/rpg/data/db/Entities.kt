@@ -333,3 +333,29 @@ data class UsageEntity(
     val retryCount: Int,
     val errorKind: String?,
 )
+
+/**
+ * Promises, debts and deals.
+ *
+ * Indexed on the two parties and on whether it is still open, because the questions asked of this
+ * table are always "what does this person owe" and "what is still outstanding" — never "show me
+ * every obligation ever made".
+ */
+@Entity(
+    tableName = "commitments",
+    foreignKeys = [ForeignKey(GameEntity::class, ["id"], ["gameId"], onDelete = ForeignKey.CASCADE)],
+    indices = [
+        Index("gameId", "status"),
+        Index("gameId", "fromEntityId"),
+        Index("gameId", "toEntityId"),
+    ],
+)
+data class CommitmentEntity(
+    @PrimaryKey val id: String,
+    val gameId: String,
+    val fromEntityId: String,
+    val toEntityId: String,
+    val status: String,
+    val createdWorldMinutes: Long,
+    val payload: String,
+)

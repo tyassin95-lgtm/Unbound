@@ -124,6 +124,14 @@ internal object Mappers {
     fun toEntity(t: TurnRecord) = TurnEntity(
         t.id, t.gameId, t.turnNumber, t.status.name, t.idempotencyKey, json.encodeToString(TurnRecord.serializer(), t),
     )
+    fun toEntity(c: com.unbound.core.continuity.CommitmentRecord) = CommitmentEntity(
+        id = c.id, gameId = c.gameId, fromEntityId = c.fromEntityId, toEntityId = c.toEntityId,
+        status = c.status.name, createdWorldMinutes = c.createdWorldMinutes,
+        payload = json.encodeToString(com.unbound.core.continuity.CommitmentRecord.serializer(), c),
+    )
+    fun toCommitment(e: CommitmentEntity): com.unbound.core.continuity.CommitmentRecord =
+        json.decodeFromString(com.unbound.core.continuity.CommitmentRecord.serializer(), e.payload)
+
     fun toTurn(e: TurnEntity): TurnRecord = json.decodeFromString(TurnRecord.serializer(), e.payload)
 
     fun toEntity(s: SnapshotRecord) = SnapshotEntity(

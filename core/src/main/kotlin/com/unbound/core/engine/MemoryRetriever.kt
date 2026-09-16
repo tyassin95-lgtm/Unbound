@@ -131,32 +131,42 @@ class MemoryRetriever(
     }
 
     /**
-     * What each present NPC personally knows about the entities in play. Deliberately per-NPC and
-     * capped: this is the section that would otherwise leak world truth into every character's head.
+     * What each character in the scene knows, in one read rather than two per character.
+     *
+     * Facts about what this turn is *about* come first — that is the difference between a
+     * character recalling the thing being discussed and a character reciting the first rows in
+     * their file. Everything else fills the remaining budget by importance, so a character with
+     * nothing relevant still arrives with the things that define them.
      */
     suspend fun npcKnowledge(
         gameId: String,
         npcIds: Collection<String>,
         subjects: Collection<String>,
         budget: RetrievalBudget = RetrievalBudget(),
-    ): Map<String, List<KnowledgeRecord>> = npcIds.associateWith { npcId ->
-        val about = if (subjects.isEmpty()) {
-            emptyList()
-        } else {
-            store.knowledgeOfAbout(gameId, npcId, subjects, budget.maxNpcKnowledgeFacts)
-        }
-        if (about.size >= budget.maxNpcKnowledgeFacts) {
-            about
-        } else {
-            (about + store.knowledgeOf(gameId, npcId, budget.maxNpcKnowledgeFacts))
-                .distinctBy { it.factKey }
-                .sortedByDescending { it.importance.weight }
-                .take(budget.maxNpcKnowledgeFacts)
-        }
-    }.filterValues { it.isNotEmpty() }
+    ): Map<String, List<KnowledgeRecord>> {
+        if (npcIds.isEmpty()) return emptyMap()
+        val subjectSet = subjects.toSet()
+        // Oversampled so the ranking below has something to choose between.
+        val rows = store.knowledgeForKnowers(gameId, npcIds, budget.maxNpcKnowledgeFacts * KNOWLEDGE_OVERSAMPLE)
+
+        return rows.groupBy { it.knowerId }
+            .mapValues { (_, facts) ->
+                facts.sortedWith(
+                    compareByDescending<KnowledgeRecord> { f ->
+                        if (f.subjectEntityIds.any { it in subjectSet }) 1 else 0
+                    }
+                        .thenByDescending { it.importance.weight }
+                        .thenByDescending { it.learnedAtWorldMinutes },
+                )
+                    .distinctBy { it.factKey }
+                    .take(budget.maxNpcKnowledgeFacts)
+            }
+            .filterValues { it.isNotEmpty() }
+    }
 
     private companion object {
         const val CANDIDATE_OVERSAMPLE = 6
+        const val KNOWLEDGE_OVERSAMPLE = 4
         const val MAX_SUMMARY_SCAN = 60
     }
 }

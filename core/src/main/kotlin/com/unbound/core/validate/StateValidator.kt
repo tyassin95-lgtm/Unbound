@@ -35,6 +35,8 @@ data class ValidationContext(
      * something with a named source.
      */
     val knownEntityIds: Set<String> = emptySet(),
+    /** Obligations still outstanding, so a turn cannot quietly settle one that was never made. */
+    val openCommitments: List<com.unbound.core.continuity.CommitmentRecord> = emptyList(),
 ) {
     fun entityExists(id: String): Boolean = when {
         id == Ids.PLAYER || id == player.id -> true

@@ -118,6 +118,10 @@ class RoomWorldStore(private val db: UnboundDatabase) : WorldStore {
         chunked(subjectIds) { db.knowledge().about(gameId, knowerId, it, limit) }
             .distinctBy { it.id }.take(limit).map(Mappers::toKnowledge)
 
+    override suspend fun knowledgeForKnowers(gameId: String, knowerIds: Collection<String>, limitPerKnower: Int) =
+        chunked(knowerIds) { db.knowledge().forKnowers(gameId, it, limitPerKnower) }
+            .distinctBy { it.id }.map(Mappers::toKnowledge)
+
     override suspend fun hasFact(gameId: String, knowerId: String, factKey: String) =
         db.knowledge().byFact(gameId, knowerId, factKey) != null
 
@@ -207,6 +211,9 @@ class RoomWorldStore(private val db: UnboundDatabase) : WorldStore {
     override suspend fun eventsInvolving(gameId: String, entityIds: Collection<String>, limit: Int) =
         chunked(entityIds) { db.events().involving(gameId, it, limit) }.distinctBy { it.id }.take(limit).map(Mappers::toEvent)
     override suspend fun eventsPage(gameId: String, offset: Int, limit: Int) = db.events().page(gameId, offset, limit).map(Mappers::toEvent)
+
+    override suspend fun eventsByIds(gameId: String, ids: Collection<String>) =
+        chunked(ids) { db.events().byIds(gameId, it) }.distinctBy { it.id }.map(Mappers::toEvent)
     override suspend fun nextEventSequence(gameId: String) = db.events().maxSequence(gameId) + 1
     override suspend fun countEvents(gameId: String) = db.events().count(gameId)
     override suspend fun deleteEventsAfterSequence(gameId: String, sequence: Long) = db.events().deleteAfter(gameId, sequence)
@@ -270,6 +277,19 @@ class RoomWorldStore(private val db: UnboundDatabase) : WorldStore {
             cachedTokens = row.cachedTokens, imageRequests = row.imageRequests,
             failures = row.failures, averageLatencyMs = row.averageLatencyMs,
         )
+    }
+
+    override suspend fun openCommitments(gameId: String, limit: Int) =
+        db.commitments().open(gameId, limit).map(Mappers::toCommitment)
+
+    override suspend fun allCommitments(gameId: String) =
+        db.commitments().all(gameId).map(Mappers::toCommitment)
+
+    override suspend fun commitmentsInvolving(gameId: String, entityId: String, limit: Int) =
+        db.commitments().involving(gameId, entityId, limit).map(Mappers::toCommitment)
+
+    override suspend fun upsertCommitments(commitments: Collection<com.unbound.core.continuity.CommitmentRecord>) {
+        if (commitments.isNotEmpty()) db.commitments().upsertAll(commitments.map(Mappers::toEntity))
     }
 
     override suspend fun usageByModel(gameId: String?): List<com.unbound.core.engine.UsageAggregate> =

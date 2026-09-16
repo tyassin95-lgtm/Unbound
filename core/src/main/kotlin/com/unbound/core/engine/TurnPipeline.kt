@@ -18,6 +18,7 @@ import com.unbound.core.memory.MemoryVisibility
 import com.unbound.core.memory.RetrievalBudget
 import com.unbound.core.memory.RetrievalQuery
 import com.unbound.core.model.*
+import com.unbound.core.continuity.ContinuityEngine
 import com.unbound.core.prompt.ContextBuilder
 import com.unbound.core.prompt.PromptModules
 import com.unbound.core.prompt.TurnContext
@@ -61,6 +62,11 @@ class TurnPipeline(
     private val contextBuilder: ContextBuilder = ContextBuilder(),
     private val budget: RetrievalBudget = RetrievalBudget(),
     private val config: PipelineConfig = PipelineConfig(),
+    /**
+     * Assembly lives here rather than in this class. Deciding what the model should know is a
+     * different job from committing state, and it is the one most worth being able to test alone.
+     */
+    private val continuity: ContinuityEngine = ContinuityEngine(store, retriever, budget),
 ) {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true; coerceInputValues = true }
     private val memoryExtractor = MemoryExtractor(idFactory)
@@ -210,120 +216,16 @@ class TurnPipeline(
         playerInput: String,
         directive: String? = null,
     ): Assembly {
-        val location = store.getLocation(game.id, player.currentLocationId)
-            ?: error("Player is at unknown location ${player.currentLocationId}")
-
-        val present = store.npcsAt(game.id, location.id).filter { it.alive }
-        val persistent = store.persistentNpcs(game.id, 120)
-
-        val mentionCandidates = persistent.associate { it.id to it.name }
-        val mentioned = CommandParserHolder.parser.resolveMentions(playerInput, mentionCandidates)
-
-        // Someone who was in the scene a turn or two ago is still relevant even if their stored
-        // location says otherwise — that staleness is exactly what used to make a character vanish
-        // from her own conversation. Present first, then named, then recently seen, all capped.
-        val recentlySeen = persistent.filter { npc ->
-            npc.lastSeenTurn?.let { game.turnNumber - it <= RECENTLY_SEEN_TURNS } == true
-        }
-        val relevantNpcs = (present + persistent.filter { it.id in mentioned } + recentlySeen)
-            .distinctBy { it.id }
-            .take(budget.maxNpcs)
-
-        val openThreads = store.activeThreads(game.id, budget.maxThreads)
-
-        // Read once and reused three ways below. Re-querying per use is how a turn quietly ends up
-        // issuing the same query four times.
-        val allFactions = store.factions(game.id)
-        val factions = allFactions.filter { it.discovered }.take(6)
-        val inventory = store.itemsOwnedBy(game.id, player.id)
-        val rumors = store.activeRumors(game.id, budget.maxRumors)
-
-        val focusIds = mentioned + relevantNpcs.map { it.id }
-        val query = RetrievalQuery(
-            gameId = game.id,
-            now = game.worldTime,
-            currentLocationId = location.id,
-            presentNpcIds = present.map { it.id }.toSet(),
-            focusEntityIds = focusIds,
-            activeThreadIds = openThreads.map { it.id }.toSet(),
-            factionIds = factions.map { it.id }.toSet(),
-            itemIds = inventory.map { it.id }.toSet(),
-            inputText = playerInput,
-        )
-        val retrieved = retriever.retrieve(query, budget)
-
-        val subjects = (focusIds + setOf(Ids.PLAYER) + inventory.map { it.id }).toSet()
-        val npcKnowledge = retriever.npcKnowledge(game.id, relevantNpcs.map { it.id }, subjects, budget)
-        val playerKnowledge = store.knowledgeOf(game.id, Ids.PLAYER, 10)
-
-        val relationships = store.relationshipsFrom(game.id, Ids.PLAYER, 60)
-            .associateBy { it.toEntityId }
-
-        val reachable = (location.exits.values + location.nearbyLocationIds + location.id).toSet()
-        val referencedLocations = store.locationsByIds(game.id, reachable.toList())
-        val nearby = referencedLocations.filter { it.id != location.id }
-
-        val recentTurns = store.recentTurns(game.id, 3)
-        val repetition = detectRepetition(recentTurns)
-
-        val context = TurnContext(
-            game = game,
-            world = world,
-            player = player,
-            location = location,
-            presentNpcs = present,
-            relevantNpcs = relevantNpcs,
-            relationships = relationships,
-            npcKnowledge = npcKnowledge,
-            playerKnowledge = playerKnowledge,
-            inventory = inventory,
-            factions = factions,
-            threads = openThreads,
-            rumors = rumors,
-            retrieved = retrieved,
-            worldNotes = emptyList(),
-            nearbyLocations = nearby,
-            repetitionWarning = repetition,
-            directive = directive,
-        )
-
-        val validationContext = ValidationContext(
-            game = game,
-            player = player,
-            world = world,
-            npcs = (relevantNpcs + present).distinctBy { it.id }.associateBy { it.id },
-            locations = (referencedLocations + location).distinctBy { it.id }.associateBy { it.id },
-            factions = allFactions.associateBy { it.id },
-            items = (inventory + store.itemsAt(game.id, location.id)).distinctBy { it.id }.associateBy { it.id },
-            reachableLocationIds = reachable,
-            specialRules = world.specialRules,
-            // Everyone and everywhere this campaign actually has, so a reference to someone real
-            // but not retrieved this turn is not mistaken for a reference to nobody.
-            knownEntityIds = (persistent.map { it.id } + allFactions.map { it.id } +
-                store.discoveredLocations(game.id, 200).map { it.id }).toSet(),
-        )
-
+        val assembled = continuity.assemble(game, world, player, playerInput, directive)
         return Assembly(
-            context = context,
-            validationContext = validationContext,
-            openThreads = openThreads,
-            query = query,
-            dynamicContext = contextBuilder.build(context),
-            allNpcs = persistent,
-            allFactions = allFactions,
+            context = assembled.context,
+            validationContext = assembled.validationContext,
+            openThreads = assembled.openThreads,
+            query = assembled.query,
+            dynamicContext = contextBuilder.build(assembled.context),
+            allNpcs = assembled.allNpcs,
+            allFactions = assembled.allFactions,
         )
-    }
-
-    private fun detectRepetition(recentTurns: List<TurnRecord>): String? {
-        if (recentTurns.size < 3) return null
-        val verbs = recentTurns.map { it.playerInput.trim().lowercase().substringBefore(' ') }
-        return if (verbs.distinct().size == 1 && verbs.first().length > 2) {
-            "The player has done the same kind of thing three turns running. Change the pressure: " +
-                "someone arrives or leaves, the weather turns, a deadline moves, or something is " +
-                "overheard. Do not force the player to change what they are doing."
-        } else {
-            null
-        }
     }
 
     private suspend fun commit(
@@ -353,6 +255,12 @@ class TurnPipeline(
 
         var sequence = store.nextEventSequence(game.id)
         val events = mutableListOf<GameEvent>()
+        // The first event of a turn is what the player did; everything else the turn emits is a
+        // consequence of it. Recording that link is what lets the world explain why a current
+        // condition exists — "she will not serve you" traces back to the night it started —
+        // instead of the model having to invent a reason on the spot.
+        var rootEventId: String? = null
+
         fun emit(
             type: EventType,
             summary: String,
@@ -363,9 +271,11 @@ class TurnPipeline(
             scope: KnowledgeScope = KnowledgeScope.WITNESSED,
             witnesses: List<String> = emptyList(),
             related: List<String> = emptyList(),
-        ) {
+            causedBy: String? = null,
+        ): String {
+            val id = Ids.event(idFactory())
             events += GameEvent(
-                id = Ids.event(idFactory()),
+                id = id,
                 gameId = game.id,
                 turnId = turn.id,
                 sequence = sequence++,
@@ -380,6 +290,24 @@ class TurnPipeline(
                 knowledgeScope = scope,
                 witnessIds = witnesses,
                 relatedEntityIds = related,
+                // Explicit cause when the caller knows one, otherwise this turn's action.
+                causedByEventId = causedBy ?: rootEventId,
+            )
+            if (rootEventId == null) rootEventId = id
+            return id
+        }
+
+        // The causal anchor for this turn. PRIVATE and TRIVIAL so it never propagates as knowledge
+        // and never becomes a memory — it exists so that every consequence below has a real cause
+        // to point at, and so the ledger records what the player actually did rather than only
+        // what the world did back.
+        if (turn.playerInput.isNotBlank()) {
+            emit(
+                EventType.PLAYER_OBSERVED,
+                "Player: ${turn.playerInput.take(MAX_ACTION_SUMMARY)}",
+                Importance.TRIVIAL,
+                actorId = Ids.PLAYER,
+                scope = KnowledgeScope.PRIVATE,
             )
         }
 
@@ -990,6 +918,8 @@ class TurnPipeline(
             suggestedActions = if (current.suggestedActionsEnabled) response.suggestedActions.take(5) else emptyList(),
             playerDialogue = response.playerDialogue.filter { it.isNotBlank() }.take(12),
             errorMessage = null,
+            // Kept so the next turn can tell the model what moved while the player was busy.
+            worldNotes = simulation.notes.map { it.summary }.take(MAX_WORLD_NOTES),
         )
         store.upsertTurn(completedTurn)
 
@@ -1089,6 +1019,8 @@ class TurnPipeline(
         const val DIRECTIVE_INPUT = "Begin."
 
         /** Below a few hours, nothing has had time to cool off. */
+        const val MAX_WORLD_NOTES = 6
+        const val MAX_ACTION_SUMMARY = 180
         const val DECAY_THRESHOLD_MINUTES = 240
         const val MAX_DECAY_ROWS = 80
 

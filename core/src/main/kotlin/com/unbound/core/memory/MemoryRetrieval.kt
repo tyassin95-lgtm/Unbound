@@ -157,6 +157,15 @@ data class RetrievalBudget(
     val maxRumors: Int = 4,
     val maxSummaries: Int = 3,
     /**
+     * How many previous turns are sent verbatim. Three is enough for a conversation to read as
+     * continuous without the context becoming a transcript: the structured state carries the rest.
+     */
+    val maxTranscriptTurns: Int = 4,
+    /** Open promises and debts. Few, because each one is a standing obligation and they are rare. */
+    val maxCommitments: Int = 8,
+    /** Facts the player holds, ranked by relevance to this turn rather than by row order. */
+    val maxPlayerKnowledgeFacts: Int = 18,
+    /**
      * Events involving whoever the turn is about, at any importance.
      *
      * Separate from the two event budgets above because it answers a different question. "Recent"

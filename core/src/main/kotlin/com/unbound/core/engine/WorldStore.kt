@@ -95,6 +95,19 @@ interface WorldStore {
     // --- knowledge ---------------------------------------------------------------------------
     suspend fun knowledgeOf(gameId: String, knowerId: String, limit: Int = 50): List<KnowledgeRecord>
     suspend fun knowledgeOfAbout(gameId: String, knowerId: String, subjectIds: Collection<String>, limit: Int = 20): List<KnowledgeRecord>
+
+    /**
+     * Knowledge held by several knowers in one read.
+     *
+     * Per-knower queries meant a turn issued two reads for every character in the scene, so the
+     * cost of assembling a turn scaled with how crowded the room was. Ranking happens in memory,
+     * where the caller already knows which subjects this turn is about.
+     */
+    suspend fun knowledgeForKnowers(
+        gameId: String,
+        knowerIds: Collection<String>,
+        limitPerKnower: Int,
+    ): List<KnowledgeRecord>
     suspend fun hasFact(gameId: String, knowerId: String, factKey: String): Boolean
     suspend fun upsertKnowledge(records: Collection<KnowledgeRecord>)
 
@@ -130,6 +143,9 @@ interface WorldStore {
     suspend fun importantEventsBefore(gameId: String, beforeWorldMinutes: Long, minImportance: Importance, limit: Int): List<GameEvent>
     suspend fun eventsInvolving(gameId: String, entityIds: Collection<String>, limit: Int): List<GameEvent>
     suspend fun eventsPage(gameId: String, offset: Int, limit: Int): List<GameEvent>
+
+    /** Specific events by id. Used to resolve the `causedBy` link behind a current condition. */
+    suspend fun eventsByIds(gameId: String, ids: Collection<String>): List<GameEvent>
     suspend fun nextEventSequence(gameId: String): Long
     suspend fun countEvents(gameId: String): Int
     suspend fun deleteEventsAfterSequence(gameId: String, sequence: Long)
@@ -186,6 +202,13 @@ interface WorldStore {
     suspend fun imagesFor(gameId: String, entityId: String): List<ImageRecord>
     suspend fun allImages(gameId: String): List<ImageRecord>
     suspend fun deleteImageFiles(gameId: String)
+
+    // --- commitments -------------------------------------------------------------------------
+    /** Open promises, debts and deals. Bounded like everything else. */
+    suspend fun openCommitments(gameId: String, limit: Int = 100): List<com.unbound.core.continuity.CommitmentRecord>
+    suspend fun allCommitments(gameId: String): List<com.unbound.core.continuity.CommitmentRecord>
+    suspend fun commitmentsInvolving(gameId: String, entityId: String, limit: Int = 50): List<com.unbound.core.continuity.CommitmentRecord>
+    suspend fun upsertCommitments(commitments: Collection<com.unbound.core.continuity.CommitmentRecord>)
 
     suspend fun recordUsage(usage: UsageRecord)
     suspend fun usageFor(gameId: String?, limit: Int = 500): List<UsageRecord>

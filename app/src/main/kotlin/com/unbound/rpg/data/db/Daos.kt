@@ -136,6 +136,27 @@ interface KnowledgeDao {
     )
     suspend fun about(gameId: String, knowerId: String, subjectIds: Collection<String>, limit: Int): List<KnowledgeEntity>
 
+    /**
+     * Everything several knowers hold, in one read.
+     *
+     * The per-knower window is applied in SQL so a single character with a thousand facts cannot
+     * crowd out everyone else in the scene. Without the window this would have to over-fetch the
+     * whole table and trim in memory, which is the scan the join above exists to avoid.
+     */
+    @Query(
+        """
+        SELECT * FROM (
+            SELECT k.*, ROW_NUMBER() OVER (
+                PARTITION BY k.knowerId ORDER BY k.importance DESC, k.learnedAtWorldMinutes DESC
+            ) AS rn
+            FROM knowledge k
+            WHERE k.gameId = :gameId AND k.knowerId IN (:knowerIds)
+        )
+        WHERE rn <= :limitPerKnower
+        """,
+    )
+    suspend fun forKnowers(gameId: String, knowerIds: Collection<String>, limitPerKnower: Int): List<KnowledgeEntity>
+
     @Query("SELECT * FROM knowledge WHERE gameId = :gameId AND knowerId = :knowerId AND factKey = :factKey LIMIT 1")
     suspend fun byFact(gameId: String, knowerId: String, factKey: String): KnowledgeEntity?
 
@@ -242,6 +263,9 @@ interface EventDao {
 
     @Query("SELECT COUNT(*) FROM events WHERE gameId = :gameId") suspend fun count(gameId: String): Int
     @Query("DELETE FROM events WHERE gameId = :gameId AND sequence > :sequence") suspend fun deleteAfter(gameId: String, sequence: Long)
+    @Query("SELECT * FROM events WHERE gameId = :gameId AND id IN (:ids)")
+    suspend fun byIds(gameId: String, ids: Collection<String>): List<EventEntity>
+
 }
 
 @Dao
@@ -345,3 +369,24 @@ data class UsageByModelRow(
     val failures: Int,
     val totalLatencyMs: Long,
 )
+
+@Dao
+interface CommitmentDao {
+    @Query("DELETE FROM commitments WHERE gameId = :gameId") suspend fun clearGame(gameId: String)
+    @Upsert suspend fun upsertAll(commitments: Collection<CommitmentEntity>)
+
+    @Query(
+        "SELECT * FROM commitments WHERE gameId = :gameId AND status = 'OUTSTANDING' " +
+            "ORDER BY createdWorldMinutes DESC LIMIT :limit",
+    )
+    suspend fun open(gameId: String, limit: Int): List<CommitmentEntity>
+
+    @Query("SELECT * FROM commitments WHERE gameId = :gameId ORDER BY createdWorldMinutes ASC")
+    suspend fun all(gameId: String): List<CommitmentEntity>
+
+    @Query(
+        "SELECT * FROM commitments WHERE gameId = :gameId AND (fromEntityId = :entityId OR toEntityId = :entityId) " +
+            "ORDER BY createdWorldMinutes DESC LIMIT :limit",
+    )
+    suspend fun involving(gameId: String, entityId: String, limit: Int): List<CommitmentEntity>
+}

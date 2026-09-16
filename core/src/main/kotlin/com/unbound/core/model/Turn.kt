@@ -41,6 +41,16 @@ data class TurnRecord(
     val playerDialogue: List<String> = emptyList(),
     val errorMessage: String? = null,
     val imageId: String? = null,
+    /**
+     * What the world did on its own during this turn, in the simulator's words.
+     *
+     * Kept per turn so the *next* turn can tell the model what moved while the player was busy.
+     * The context has always had a section for this and the assembly hard-coded it empty, so the
+     * one instruction the system prompt gives about off-screen movement had nothing to act on.
+     */
+    val worldNotes: List<String> = emptyList(),
+    /** The provider that generated this turn, alongside [modelId]. */
+    val providerId: String? = null,
 )
 
 @Serializable

@@ -45,6 +45,7 @@ class InMemoryWorldStore : WorldStore {
     private val snapshots = linkedMapOf<String, SnapshotRecord>()
     private val images = linkedMapOf<String, ImageRecord>()
     private val usage = mutableListOf<UsageRecord>()
+    private val commitments = linkedMapOf<String, com.unbound.core.continuity.CommitmentRecord>()
 
     /**
      * Transaction membership is a property of the *calling coroutine*, not of the store. A plain
@@ -122,6 +123,7 @@ class InMemoryWorldStore : WorldStore {
         events.removeAll { it.gameId == gameId }
         // Matches the Room implementation: the save is gone, so its cost history goes with it.
         usage.removeAll { it.gameId == gameId }
+        commitments.values.removeAll { it.gameId == gameId }
     }
 
     override suspend fun bumpStateVersion(gameId: String, expectedVersion: Long): Boolean {
@@ -188,6 +190,17 @@ class InMemoryWorldStore : WorldStore {
         knowledge.values.filter { it.gameId == gameId && it.knowerId == knowerId }
             .sortedByDescending { it.learnedAtWorldMinutes }
             .take(limit)
+
+    override suspend fun knowledgeForKnowers(gameId: String, knowerIds: Collection<String>, limitPerKnower: Int) =
+        knowledge.values
+            .filter { it.gameId == gameId && it.knowerId in knowerIds }
+            .groupBy { it.knowerId }
+            .flatMap { (_, rows) ->
+                rows.sortedWith(
+                    compareByDescending<com.unbound.core.knowledge.KnowledgeRecord> { it.importance.weight }
+                        .thenByDescending { it.learnedAtWorldMinutes },
+                ).take(limitPerKnower)
+            }
 
     override suspend fun knowledgeOfAbout(gameId: String, knowerId: String, subjectIds: Collection<String>, limit: Int) =
         knowledge.values.filter {
@@ -270,6 +283,9 @@ class InMemoryWorldStore : WorldStore {
     override suspend fun eventsPage(gameId: String, offset: Int, limit: Int) =
         events.filter { it.gameId == gameId }.sortedByDescending { it.sequence }.drop(offset).take(limit)
 
+    override suspend fun eventsByIds(gameId: String, ids: Collection<String>) =
+        events.filter { it.gameId == gameId && it.id in ids }
+
     override suspend fun nextEventSequence(gameId: String) =
         (events.filter { it.gameId == gameId }.maxOfOrNull { it.sequence } ?: 0L) + 1
 
@@ -341,6 +357,22 @@ class InMemoryWorldStore : WorldStore {
     override suspend fun allImages(gameId: String) = images.values.filter { it.gameId == gameId }
     override suspend fun deleteImageFiles(gameId: String) {
         images.values.filter { it.gameId == gameId }.forEach { images[it.id] = it.copy(localPath = null) }
+    }
+
+    override suspend fun openCommitments(gameId: String, limit: Int) =
+        commitments.values.filter { it.gameId == gameId && it.isOpen() }
+            .sortedByDescending { it.createdWorldMinutes }.take(limit)
+
+    override suspend fun allCommitments(gameId: String) =
+        commitments.values.filter { it.gameId == gameId }.sortedBy { it.createdWorldMinutes }
+
+    override suspend fun commitmentsInvolving(gameId: String, entityId: String, limit: Int) =
+        commitments.values
+            .filter { it.gameId == gameId && (it.fromEntityId == entityId || it.toEntityId == entityId) }
+            .sortedByDescending { it.createdWorldMinutes }.take(limit)
+
+    override suspend fun upsertCommitments(commitments: Collection<com.unbound.core.continuity.CommitmentRecord>) {
+        commitments.forEach { this.commitments[it.id] = it }
     }
 
     override suspend fun recordUsage(usage: UsageRecord) { this.usage.add(usage) }
