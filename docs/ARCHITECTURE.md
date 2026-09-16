@@ -63,7 +63,7 @@ app/  (Android)
   data/ai/openai/ OpenAIClient, OpenAIProvider, OpenAIModelCatalog
   data/settings/ AppSettings (DataStore)
   data/images/   ImageService
-  domain/        AppContainer, GameSession
+  domain/        AppContainer (with database/provider seams for tests), GameSession, GameCreator
   ui/            Compose screens and ViewModels
 ```
 
@@ -115,7 +115,8 @@ matter more than its size:
 Two implementations:
 
 * `InMemoryWorldStore` (in `core/testing`) — the reference implementation. Its `transaction`
-  snapshots every table and restores on throw. The engine test-suite runs against it, so an engine
+  snapshots every table and restores on throw, with transaction membership scoped to the calling
+  coroutine so two concurrent turns cannot interleave. The engine test-suite runs against it, so an engine
   failure is never confused with a SQL failure.
 * `RoomWorldStore` (in `app/data/db`) — production. A conformance suite runs the same scenarios
   against it on real SQLite via Robolectric.

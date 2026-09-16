@@ -44,7 +44,7 @@ A LIKE over a packed string would have worked at ten NPCs and fallen over at a t
 | `events` | (gameId, sequence); (gameId, importance, worldMinutes); +actor; +target | the two prompt queries map onto the first two |
 | `event_entities` | (gameId, entityId) | join |
 | `turns` | (gameId, turnNumber); unique (gameId, idempotencyKey); +status | uniqueness is what makes retries safe |
-| `snapshots` | (gameId, turnNumber) | full serialized state |
+| `snapshots` | (gameId, turnNumber) | mutable canonical state + the ledger position |
 | `images` | (gameId, entityId); +canonical | metadata; bytes on disk |
 | `usage_records` | gameId; timestamp | no FK — outlives the save it describes |
 

@@ -1,10 +1,10 @@
 # Testing
 
-149 tests, 0 failures. No test makes a network call or needs an API key.
+170 tests, 0 failures. No test makes a network call or needs an API key.
 
 ```bash
-./gradlew :core:test            # 118 tests — engine, pure JVM, ~4s
-./gradlew :app:testDebugUnitTest # 31 tests — Room on real SQLite, creation, security
+./gradlew :core:test            # 129 tests — engine, pure JVM, ~5s
+./gradlew :app:testDebugUnitTest # 41 tests — Room on real SQLite, the player journey, security
 ./gradlew test                   # everything
 ```
 
@@ -18,6 +18,11 @@
 | `SaveAndUndoTest` | 6 | 0.1s | export/import, undo, deletion |
 | `CommandParserTest` | 5 | 0.1s | local commands vs. narrative |
 | `SecretScanTest` | 5 | 0.8s | source, BuildConfig and **APK** secret scans |
+| `PlayerJourneyTest` | 1 | 6.0s | the whole player path end to end on real SQLite |
+| `AuditProbeTest` / `AuditProbe2Test` | 11 | 2.5s | snapshots, undo, bounded growth, concurrency, per-turn cost |
+| `SaveTransferTest` | 2 | 1.5s | importing a save, and refusing one that is not |
+| `ImageStorageTest` | 2 | 1.4s | reclaiming picture files, sweeping orphans |
+| `NewGameDraftSaverTest` | 3 | 0.0s | the creation draft surviving a rotation |
 | `WorldTimeTest` | 5 | 0.0s | calendar, seasons, elapsed-time phrasing |
 | `LongCampaignTest` | 4 | 0.4s | 150 turns, context bounds, cost |
 | `ContentGuardTest` | 4 | 0.0s | age gating |
@@ -125,6 +130,39 @@ Not hypothetical — each of these was caught by a failing test during developme
    flight and invited repeated taps. The orchestration was extracted into `GameCreator` so the
    emitted sequence could be pinned, and `GameCreatorTest` now asserts nothing goes idle until the
    last call returns.
+
+## Bugs the audit pass found
+
+A full production audit was run over the finished application. These were found by probes and by
+the end-to-end journey test, not by inspection:
+
+10. **Snapshot pruning deleted everything it was meant to keep**, so undo silently had nothing to
+    roll back to every few captures. Snapshots also serialised the whole save, ledger included,
+    on every capture, and undo rebuilt the game by deleting it first — destroying the player's
+    usage and cost history, which no save bundle can restore.
+11. **Memories grew without bound** (601 after 200 turns). The consolidator that was meant to
+    prevent this was never called from anywhere, and only handled the importance band that does
+    not actually grow.
+12. **NPC hostility never reached the prompt or the journal**, because relationship writes used
+    two orientations for the same pair and readers only queried one. Relationships also never
+    decayed, despite the decay code existing.
+13. **Two concurrent turns both committed.** The optimistic lock was sound; the in-memory store's
+    transaction flag was not coroutine-scoped, and the mock provider never suspended, so the
+    concurrency test had never actually raced anything.
+14. **`listModels` blocked the main thread.** The blocking OkHttp call was wrapped in
+    `Dispatchers.IO` by some callers and not others; the dispatch now lives inside the client.
+15. **First meetings were never recorded for anyone the world started with.** Only characters the
+    model invented were stamped as encountered, so a seeded NPC the player shared fifty scenes
+    with stayed "unmet": absent from the journal, and never introduced to the model as someone
+    already known. Found by the journey test on its first run.
+16. **Importing a save was unreachable.** The button navigated to a screen with no import on it,
+    and the view-model call it should have reached was never invoked from anywhere — and swallowed
+    every failure when it was.
+17. **Deleting a save stranded every picture it had generated** on disk, unreferenced.
+18. **The usage screen's "total" stopped being a total** after 2,000 requests, understating what
+    the player had spent on their own key.
+19. **Character creation lost everything typed on a rotation.** The step number was saveable; the
+    draft holding the character was not.
 
 ## What is *not* tested, and why
 

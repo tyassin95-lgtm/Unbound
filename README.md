@@ -249,12 +249,15 @@ exactly what is and is not verified.
 
 * **No emulator was available where this was built**, so no instrumented UI test has been executed.
   The Compose layer is compiled and lint-clean; the Room layer is tested on real SQLite via
-  Robolectric; the engine is covered by 65 JVM tests. UI behaviour has not been observed running on
-  a device.
+  Robolectric; the engine is covered by 129 JVM tests, and `PlayerJourneyTest` walks the whole
+  player path — build a world, pick an opening, play, read the journal, ask for a picture, step
+  back, export, reopen — over real SQLite and the real app wiring. **UI behaviour has still not
+  been observed running on a device**, which remains the largest gap.
 * Prices in the model table are estimates and go stale. Token counts come from OpenAI and are real;
   the money figure is a local multiplication and is labelled as an estimate throughout.
-* Semantic retrieval is lexical overlap, not embeddings. A `SemanticIndex` seam exists; adding
-  embeddings would add per-turn cost, which is why it is not the default.
-* Worlds are seeded from six authored settings and grow outward from the player. There is no
-  fully model-generated world at creation time — deliberately, for cost and consistency.
+* Semantic retrieval is lexical overlap, not embeddings. A `SemanticIndex` seam exists and is
+  genuinely wired — supplying an index feeds similarity into the score — but no index ships,
+  because embeddings add a per-turn cost on the player's own key.
+* Worlds are seeded from six authored settings, or described by the player and built by the model,
+  and then grow outward from the player.
 * The release APK is signed with the debug key.
